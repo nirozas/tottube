@@ -69,22 +69,26 @@ export function useAppStore() {
   // ─── Init ────────────────────────────────────────────────────
   const refreshState = useCallback(async () => {
     if (!supabase) {
+      console.warn('📡 App: Supabase not configured. Using local/offline state.')
       setIsAuthenticated(false)
       setIsLoading(false)
       return
     }
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) {
-      setUser(null)
-      setIsAuthenticated(false)
-      setIsLoading(false)
-      return
-    }
-    
-    setUser(session.user)
-    setIsAuthenticated(true)
-    setIsLoading(true)
     try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+      if (sessionError) throw sessionError
+
+      if (!session) {
+        setUser(null)
+        setIsAuthenticated(false)
+        setIsLoading(false)
+        return
+      }
+      
+      setUser(session.user)
+      setIsAuthenticated(true)
+      setIsLoading(true)
+      
       const [s, ch, pl] = await Promise.all([
         getSettings(),
         getChannels(),
@@ -96,10 +100,12 @@ export function useAppStore() {
       setPlaylists(pl)
       setKids(s.kids || [])
 
-      // Trigger Harvest if channels exist
       if (ch.length > 0) {
         await harvestContent(ch)
       }
+    } catch (err) {
+      console.error('📡 App: State refresh failed:', err)
+      setIsAuthenticated(false)
     } finally {
       setIsLoading(false)
     }
@@ -110,6 +116,7 @@ export function useAppStore() {
 
     if (!supabase) return
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log(`🔑 Auth State Event: ${_event}`)
       if (session) {
         setUser(session.user)
         setIsAuthenticated(true)

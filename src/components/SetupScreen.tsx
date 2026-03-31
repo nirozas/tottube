@@ -154,6 +154,18 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
           {step === 'auth' ? 'Create or sign in to your parent account.' : step === 'pin' ? 'Set up a Master PIN to protect the digital sandbox.' : 'Pick a name and picture for your little one.'}
         </p>
 
+        {!isSupabaseConfigured && (
+          <div className="mb-6 p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-400">
+             <div className="flex items-center gap-2 mb-2 font-black text-sm uppercase">
+               <Shield className="w-4 h-4" />
+               Supabase Connection Error
+             </div>
+             <p className="text-xs font-bold leading-relaxed opacity-80">
+               Environment variables (VITE_SUPABASE_URL) are missing. Sign-in and persistent storage are disabled. Please check Vercel settings.
+             </p>
+          </div>
+        )}
+
         {step === 'auth' ? (
           <form onSubmit={handleAuth} className="space-y-6 animate-slide-up" style={{ animationDelay: '0.3s' }}>
             <div>
