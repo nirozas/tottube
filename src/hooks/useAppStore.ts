@@ -1,0 +1,322 @@
+import { useState, useEffect, useCallback, useRef } from 'react'
+import {
+  getSettings, saveSettings,
+  getChannels, addChannel, removeChannel,
+  getPlaylists, addPlaylist, removePlaylist,
+  fetchChannelInfo, fetchPlaylistInfo, fetchVideosFromChannels, fetchPlaylistVideos,
+  getTodaySession, saveTodaySession, resetTodaySession,
+  getSavedLiveStreams, saveLiveStreams,
+  addShortcut, removeShortcut
+} from '../lib/storage'
+import { AppSettings, Channel, YouTubeVideo, Kid, Playlist } from '../types'
+
+export function useAppStore() {
+  // ─── State ───────────────────────────────────────────────────
+  const [settings, setSettings] = useState<AppSettings>({
+    dailyLimitMinutes: 60,
+    adminPin: '1234',
+    isSetup: true,
+  })
+  const [kids, setKids] = useState<Kid[]>([])
+  const [currentKid, setCurrentKid] = useState<Kid | null>(null)
+  const [channels, setChannels] = useState<Channel[]>([])
+  const [playlists, setPlaylists] = useState<Playlist[]>([])
+  const [videos, setVideos] = useState<YouTubeVideo[]>([])
+  const [nextTokens, setNextTokens] = useState<Record<string, string>>({})
+  const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [isAdminOpen, setIsAdminOpen] = useState(false)
+  const [isVaultUnlocked, setIsVaultUnlocked] = useState(false)
+  const [minutesUsed, setMinutesUsed] = useState(0)
+  const [activeChannelFilter, setActiveChannelFilter] = useState<string | null>(null)
+  const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null)
+  const [isPlayerVisible, setIsPlayerVisible] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [activeCategory, setActiveCategory] = useState('all')
+
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const secondsRef = useRef(0)
+
+  // ─── Harvesting Logic (The "Initial Scan") ───────────────────
+  const harvestContent = useCallback(async (channelList: Channel[]) => {
+    if (!channelList.length) return
+    console.log("🚜 Starting Content Harvest...")
+    
+    try {
+      // 1. Find all active lives across all channels (Deep Lookup)
+      const targetIds = channelList.map(c => c.channelId)
+      const { videos: discoveredLives } = await fetchVideosFromChannels(
+        targetIds, '', 'any', undefined, true, 30 // maxResults: 30
+      )
+      
+      if (discoveredLives.length > 0) {
+        console.log(`📡 Harvested ${discoveredLives.length} live streams! Saving to vault...`)
+        await saveLiveStreams(discoveredLives)
+      }
+
+      // 2. Initial fetch of videos for all channels if state is empty
+      const { videos: initialVids } = await fetchVideosFromChannels(targetIds, '', 'any', undefined, false, 30)
+      setVideos(initialVids)
+    } catch (err) {
+      console.warn("Harvest incomplete:", err)
+    }
+  }, [])
+
+  // ─── Init ────────────────────────────────────────────────────
+  const refreshState = useCallback(async () => {
+    setIsLoading(true)
+    try {
+      const [s, ch, pl] = await Promise.all([
+        getSettings(),
+        getChannels(),
+        getPlaylists()
+      ])
+      
+      setSettings({ ...s, isSetup: s.isSetup ?? false })
+      setChannels(ch)
+      setPlaylists(pl)
+      setKids(s.kids || [])
+
+      // Trigger Harvest if channels exist
+      if (ch.length > 0) {
+        await harvestContent(ch)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [harvestContent])
+
+  useEffect(() => {
+    refreshState()
+  }, [refreshState])
+
+  const setProfile = useCallback(async (kid: Kid | null) => {
+    setCurrentKid(kid)
+    setActiveChannelFilter(null)
+    setActivePlaylistId(null)
+    if (kid) {
+      setIsLoading(true)
+      const session = await getTodaySession(kid.id)
+      setMinutesUsed(session.minutesWatched)
+      setIsLoading(false)
+    } else {
+      setMinutesUsed(0)
+    }
+  }, [])
+
+  // ─── Smart Fetcher / Router ────────────────────────────────────
+  const refreshVideos = useCallback(async (opts?: {
+    channelList?: Channel[], 
+    playlistId?: string | null,
+    query?: string, 
+    category?: string, 
+    append?: boolean
+  }) => {
+    const list = opts?.channelList ?? channels
+    const q = opts?.query ?? searchQuery
+    const cat = opts?.category ?? activeCategory
+    const plId = opts?.hasOwnProperty('playlistId') ? opts.playlistId : activePlaylistId
+    const append = opts?.append ?? false
+    
+    // --- 🌍 LOCAL FILTERING (Songs, Shorts, Longs) ---
+    // Instead of hitting API, we sort the videos already in memory
+    if (cat !== 'all' && cat !== 'live' && !append && !q && !plId) {
+       console.log(`🎯 Using Local Smart Filter for: ${cat}`)
+       // We don't call setIsLoading(true) to keep it instant
+       return // The useEffect for activeCategory handles the UI view or we filter in VideoGrid
+    }
+
+    setIsLoading(true)
+    try {
+      let finalVids: YouTubeVideo[] = []
+      let finalTokens: Record<string, string> = {}
+
+      // --- 📡 LIVE VAULT FETCH ---
+      if (cat === 'live') {
+        console.log("🏦 Loading Live Streams from Supabase Vault...")
+        const savedLives = await getSavedLiveStreams()
+        
+        // If a specific channel is selected, we ALWAYS perform a deep search as a priority
+        if (activeChannelFilter) {
+          console.log(`📡 Performing Targeted Live Deep Look for channel: ${activeChannelFilter}`)
+          const res = await fetchVideosFromChannels([activeChannelFilter], '', 'any', undefined, true)
+          if (res.videos.length > 0) {
+             await saveLiveStreams(res.videos)
+             finalVids = res.videos
+          } else {
+             // Fallback to vault if deep look comes up empty (but unlikely if they are live)
+             finalVids = savedLives.filter(v => v.channelId === activeChannelFilter)
+          }
+        } else {
+          // If viewing "All Live", we show everything in the vault
+          finalVids = savedLives
+        }
+      } 
+      else if (plId) {
+        if (plId === '__grid__') {
+          setIsLoading(false)
+          return
+        }
+        const res = await fetchPlaylistVideos(plId, append ? nextTokens.playlist : undefined)
+        finalVids = res.videos
+        finalTokens = { playlist: res.nextPageToken || '' }
+      } 
+      else {
+        // Standard Mix/Search
+        const targetIds = activeChannelFilter ? [activeChannelFilter] : list.map(c => c.channelId)
+        if (!targetIds.length) { setVideos([]); return }
+
+        const { videos: vids, nextPageTokens: updatedTokens } = await fetchVideosFromChannels(
+          targetIds, q, 'any', append ? nextTokens : undefined
+        )
+        
+        let playlistResults: YouTubeVideo[] = []
+        if (!activeChannelFilter && q.trim()) {
+           const allMagicResults = await Promise.all(
+              playlists.map(p => fetchPlaylistVideos(p.id))
+           )
+           const queryFold = q.toLowerCase()
+           playlistResults = allMagicResults.flatMap(r => r.videos).filter(v => 
+              v.title.toLowerCase().includes(queryFold) || 
+              v.channelTitle?.toLowerCase().includes(queryFold)
+           )
+        }
+
+        finalVids = [...playlistResults, ...vids]
+        finalTokens = updatedTokens
+      }
+
+      if (append) {
+        setVideos(prev => [...finalVids, ...prev])
+        setNextTokens(prev => ({ ...prev, ...finalTokens }))
+      } else {
+        setVideos(finalVids)
+        setNextTokens(finalTokens)
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [channels, playlists, searchQuery, activeCategory, activeChannelFilter, activePlaylistId, nextTokens])
+
+  const setCategory = useCallback((cat: string) => {
+    setActiveCategory(cat)
+    refreshVideos({ category: cat })
+  }, [refreshVideos])
+
+  const toggleChannelFilter = useCallback((channelId: string | null) => {
+    setActiveChannelFilter(channelId)
+    setActivePlaylistId(null)
+    refreshVideos({ channelList: channels, playlistId: null, category: 'all' })
+  }, [channels, refreshVideos])
+
+  const togglePlaylistFilter = useCallback((playlistId: string | null) => {
+    setActivePlaylistId(playlistId)
+    setActiveChannelFilter(null)
+    refreshVideos({ playlistId, category: 'all' })
+  }, [refreshVideos])
+
+  // ─── Actions ─────────────────────────────────────────────────
+  const handleUpdateSettings = async (s: AppSettings) => {
+    await saveSettings(s)
+    setSettings(s)
+    setKids(s.kids || [])
+  }
+
+  const handleAddChannel = async (id: string) => {
+    const info = await fetchChannelInfo(id)
+    if (!info) throw new Error('Channel not found')
+    const newChannel: Channel = { ...info, addedAt: new Date().toISOString() }
+    await addChannel(newChannel)
+    setChannels(prev => [...prev, newChannel])
+  }
+
+  const handleRemoveChannel = async (id: string) => {
+    await removeChannel(id)
+    setChannels(prev => prev.filter(c => c.channelId !== id))
+  }
+
+  const handleAddPlaylist = async (id: string) => {
+    const info = await fetchPlaylistInfo(id)
+    if (!info) throw new Error('Playlist not found')
+    await addPlaylist(info)
+    setPlaylists(prev => [...prev, info])
+  }
+
+  const handleRemovePlaylist = async (id: string) => {
+    await removePlaylist(id)
+    setPlaylists(prev => prev.filter(p => p.id !== id))
+  }
+
+  const handleAddKid = async (name: string, avatar: string, passcodeId: string) => {
+    const newKid: Kid = { id: crypto.randomUUID(), name, avatarUrl: avatar, passcodeAvatarId: passcodeId, allowedChannels: [] }
+    const newKids = [...kids, newKid]
+    await handleUpdateSettings({ ...settings, kids: newKids })
+  }
+
+  const handleUpdateKid = async (id: string, name: string, avatar: string, passcodeId: string) => {
+    const newKids = kids.map(k => k.id === id ? { ...k, name, avatarUrl: avatar, passcodeAvatarId: passcodeId } : k)
+    await handleUpdateSettings({ ...settings, kids: newKids })
+  }
+
+  const handleUpdateKidChannels = async (kidId: string, channelIds: string[]) => {
+    const newKids = kids.map(k => k.id === kidId ? { ...k, allowedChannels: channelIds } : k)
+    await handleUpdateSettings({ ...settings, kids: newKids })
+  }
+
+  const handleAddShortcut = async (keyword: string, imageUrl: string) => {
+    const newShortcut = { id: crypto.randomUUID(), keyword, imageUrl }
+    await addShortcut(newShortcut)
+    setSettings(prev => ({
+      ...prev,
+      shortcuts: [...(prev.shortcuts || []), newShortcut]
+    }))
+  }
+
+  const handleRemoveShortcut = async (id: string) => {
+    await removeShortcut(id)
+    setSettings(prev => ({
+      ...prev,
+      shortcuts: (prev.shortcuts || []).filter(s => s.id !== id)
+    }))
+  }
+
+  // ─── Timer ───────────────────────────────────────────────────
+  const startTimer = useCallback(() => {
+    if (timerRef.current) return
+    timerRef.current = setInterval(() => {
+      secondsRef.current += 1
+      if (secondsRef.current >= 60) {
+        setMinutesUsed(prev => {
+          const newMins = prev + 1
+          if (currentKid) saveTodaySession(currentKid.id, newMins)
+          return newMins
+        })
+        secondsRef.current = 0
+      }
+    }, 1000)
+  }, [currentKid])
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  const onResetTimer = async (kidId: string) => {
+    await resetTodaySession(kidId)
+    if (currentKid?.id === kidId) setMinutesUsed(0)
+  }
+
+  return {
+    settings, kids, currentKid, channels, playlists, videos, isLoading,
+    isAdminOpen, isVaultUnlocked, minutesUsed, activeChannelFilter, activePlaylistId,
+    currentVideo, isPlayerVisible, searchQuery, activeCategory,
+    setIsAdminOpen, setIsVaultUnlocked, setProfile, refreshVideos, setCategory,
+    toggleChannelFilter, togglePlaylistFilter, handleUpdateSettings,
+    handleAddChannel, handleRemoveChannel, handleAddPlaylist, handleRemovePlaylist,
+    handleAddKid, handleUpdateKid, handleUpdateKidChannels,
+    handleAddShortcut, handleRemoveShortcut,
+    setCurrentVideo, setIsPlayerVisible, setSearchQuery, onResetTimer, startTimer, stopTimer
+  }
+}
