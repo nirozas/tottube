@@ -44,6 +44,7 @@ interface AdminModalProps {
   onRemoveShortcut: (id: string) => Promise<void>
   onResetTimer: (kidId: string) => void
   onSwitchProfile: () => void
+  onLogout: () => Promise<void>
 }
 
 export function AdminModal({
@@ -65,6 +66,7 @@ export function AdminModal({
   onUpdateKid,
   onAddShortcut,
   onRemoveShortcut,
+  onLogout,
 }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'profiles' | 'timer' | 'settings'>('content')
   const [contentType, setContentType] = useState<'channels' | 'playlists' | 'shortcuts'>('channels')
@@ -171,7 +173,11 @@ export function AdminModal({
                       border border-slate-700/60 shadow-2xl flex flex-col overflow-hidden animate-slide-up">
         
         {view === 'pin' ? (
-          <PinEntry correctPin={settings.adminPin} onSuccess={() => setIsVaultUnlocked(true)} />
+          <PinEntry 
+            correctPin={settings.adminPin} 
+            onSuccess={() => setIsVaultUnlocked(true)} 
+            onLogout={onLogout}
+          />
         ) : (
           <>
             {/* Header */}

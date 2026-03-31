@@ -9,6 +9,8 @@ import {
   addShortcut, removeShortcut
 } from '../lib/storage'
 import { AppSettings, Channel, YouTubeVideo, Kid, Playlist } from '../types'
+import { supabase } from '../lib/supabase'
+import { User } from '@supabase/supabase-js'
 
 export function useAppStore() {
   // ─── State ───────────────────────────────────────────────────
@@ -33,6 +35,8 @@ export function useAppStore() {
   const [isPlayerVisible, setIsPlayerVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
+  const [user, setUser] = useState<User | null>(null)
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null) 
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const secondsRef = useRef(0)
@@ -64,6 +68,21 @@ export function useAppStore() {
 
   // ─── Init ────────────────────────────────────────────────────
   const refreshState = useCallback(async () => {
+    if (!supabase) {
+      setIsAuthenticated(false)
+      setIsLoading(false)
+      return
+    }
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      setUser(null)
+      setIsAuthenticated(false)
+      setIsLoading(false)
+      return
+    }
+    
+    setUser(session.user)
+    setIsAuthenticated(true)
     setIsLoading(true)
     try {
       const [s, ch, pl] = await Promise.all([
@@ -88,6 +107,23 @@ export function useAppStore() {
 
   useEffect(() => {
     refreshState()
+
+    if (!supabase) return
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        setUser(session.user)
+        setIsAuthenticated(true)
+        refreshState()
+      } else {
+        setUser(null)
+        setIsAuthenticated(false)
+        setKids([])
+        setChannels([])
+        setPlaylists([])
+      }
+    })
+
+    return () => subscription.unsubscribe()
   }, [refreshState])
 
   const setProfile = useCallback(async (kid: Kid | null) => {
@@ -247,8 +283,8 @@ export function useAppStore() {
     setPlaylists(prev => prev.filter(p => p.id !== id))
   }
 
-  const handleAddKid = async (name: string, avatar: string, passcodeId: string) => {
-    const newKid: Kid = { id: crypto.randomUUID(), name, avatarUrl: avatar, passcodeAvatarId: passcodeId, allowedChannels: [] }
+  const handleAddKid = async (name: string, avatar: string, passcodeId?: string) => {
+    const newKid: Kid = { id: crypto.randomUUID(), name, avatarUrl: avatar, passcodeAvatarId: passcodeId || 'ava1', allowedChannels: [] }
     const newKids = [...kids, newKid]
     await handleUpdateSettings({ ...settings, kids: newKids })
   }
@@ -317,6 +353,10 @@ export function useAppStore() {
     handleAddChannel, handleRemoveChannel, handleAddPlaylist, handleRemovePlaylist,
     handleAddKid, handleUpdateKid, handleUpdateKidChannels,
     handleAddShortcut, handleRemoveShortcut,
-    setCurrentVideo, setIsPlayerVisible, setSearchQuery, onResetTimer, startTimer, stopTimer
+    setCurrentVideo, setIsPlayerVisible, setSearchQuery, onResetTimer, startTimer, stopTimer,
+    user, isAuthenticated,
+    handleLogout: async () => {
+      if (supabase) await supabase.auth.signOut()
+    }
   }
 }

@@ -6,6 +6,7 @@ import { PlaylistGrid } from './components/PlaylistGrid'
 import { AdminModal } from './components/AdminModal'
 import { VideoPlayer } from './components/VideoPlayer'
 import { ProfilePicker } from './components/ProfilePicker'
+import { SetupScreen } from './components/SetupScreen'
 import { useAppStore } from './hooks/useAppStore'
 import { useState } from 'react'
 
@@ -49,7 +50,9 @@ function App() {
     setSearchQuery,
     onResetTimer,
     startTimer,
-    stopTimer
+    stopTimer,
+    isAuthenticated,
+    handleLogout,
   } = useAppStore()
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
@@ -78,11 +81,17 @@ function App() {
     <Routes>
       <Route path="/" element={
         <div className="min-h-screen bg-slate-950 flex flex-col overflow-hidden">
-          {!currentKid ? (
+          {isAuthenticated === false ? (
+            <SetupScreen 
+               onComplete={() => {}} 
+               onAddKid={handleAddKid} 
+            />
+          ) : !currentKid ? (
             <ProfilePicker 
               kids={kids} 
               onSelect={setProfile} 
               onAdminOpen={() => setIsAdminOpen(true)} 
+              onLogout={handleLogout}
             />
           ) : (
             <>
@@ -110,6 +119,7 @@ function App() {
                     onSearch={handleSearch}
                     currentKid={currentKid}
                     onSwitchProfile={() => setProfile(null)}
+                    onLogout={handleLogout}
                   />
 
                   {activePlaylistId === '__grid__' ? (
@@ -170,6 +180,7 @@ function App() {
             onAddShortcut={handleAddShortcut}
             onRemoveShortcut={handleRemoveShortcut}
             onResetTimer={onResetTimer}
+            onLogout={handleLogout}
             onSwitchProfile={() => {
               setProfile(null)
               setIsAdminOpen(false)

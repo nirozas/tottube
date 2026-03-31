@@ -4,9 +4,10 @@ import { Lock, Delete } from 'lucide-react'
 interface PinEntryProps {
   correctPin: string
   onSuccess: () => void
+  onLogout: () => Promise<void>
 }
 
-export function PinEntry({ correctPin, onSuccess }: PinEntryProps) {
+export function PinEntry({ correctPin, onSuccess, onLogout }: PinEntryProps) {
   const [pin, setPin] = useState('')
   const [error, setError] = useState(false)
 
@@ -83,6 +84,16 @@ export function PinEntry({ correctPin, onSuccess }: PinEntryProps) {
       {error && (
         <p className="text-red-500 font-black text-sm uppercase tracking-widest animate-pulse">Wrong PIN!</p>
       )}
+
+      <div className="pt-4 border-t border-slate-800 w-full text-center">
+        <p className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-3">Forgot PIN or Switch Account?</p>
+        <button 
+          onClick={onLogout}
+          className="text-red-400 font-black hover:text-red-300 transition-colors uppercase tracking-widest text-sm"
+        >
+          Sign In or Sign Up Instead
+        </button>
+      </div>
     </div>
   )
 }

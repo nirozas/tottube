@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Lock, RefreshCw, Menu, Search } from 'lucide-react'
+import { Lock, RefreshCw, Menu, Search, LogOut } from 'lucide-react'
 import { Kid } from '../types'
 
 interface HeaderProps {
@@ -13,6 +13,7 @@ interface HeaderProps {
   onSearch?: (query: string) => void
   currentKid?: Kid | null
   onSwitchProfile: () => void
+  onLogout: () => void
 }
 
 const LONG_PRESS_MS = 1200
@@ -27,7 +28,8 @@ export function Header({
   searchQuery = '',
   onSearch,
   currentKid,
-  onSwitchProfile
+  onSwitchProfile,
+  onLogout
 }: HeaderProps) {
   const [pressing, setPressing] = useState(false)
   const [searchInput, setSearchInput] = useState(searchQuery)
@@ -156,6 +158,14 @@ export function Header({
             aria-label="Refresh videos"
           >
             <RefreshCw className={`w-4 h-4 md:w-5 md:h-5 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={onLogout}
+            className="text-slate-400 hover:text-red-400 p-2 rounded-xl hover:bg-red-400/10 transition-all
+                       active:scale-95 group"
+            aria-label="Sign out"
+          >
+            <LogOut className="w-4 h-4 md:w-5 md:h-5 group-hover:rotate-12 transition-transform" />
           </button>
           <button
             onClick={onAdminOpen}

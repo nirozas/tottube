@@ -1,15 +1,28 @@
 import { Kid } from '../types'
-import { Shield } from 'lucide-react'
+import { LogOut, Shield } from 'lucide-react'
 
 interface ProfilePickerProps {
   kids: Kid[]
   onSelect: (kid: Kid) => void
   onAdminOpen: () => void
+  onLogout: () => void
 }
 
-export function ProfilePicker({ kids, onSelect, onAdminOpen }: ProfilePickerProps) {
+export function ProfilePicker({ kids, onSelect, onAdminOpen, onLogout }: ProfilePickerProps) {
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 animate-fade-in">
+    <div className="fixed inset-0 z-50 bg-slate-950 flex flex-col items-center justify-center p-6 animate-fade-in text-white">
+      {/* Sign Out Button in top right */}
+      <div className="absolute top-8 right-8">
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-2 px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-2xl
+                     text-slate-500 hover:text-red-400 hover:border-red-500/30 transition-all active:scale-95 group"
+        >
+          <LogOut className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+          <span className="font-bold text-sm hidden sm:inline">Sign Out Vault</span>
+        </button>
+      </div>
+
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-red-600/10 rounded-full blur-[100px]" />
