@@ -124,7 +124,7 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
     }
     setIsLoading(true)
     try {
-      await onAddKid(kidName.trim(), kidAvatar)
+      await onAddKid(kidName.trim(), kidAvatar, kidPasscodeId)
       onComplete(email, pin)
     } catch (err: any) {
       setError(err.message || 'Failed to create profile.')
@@ -305,14 +305,6 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
                           ))}
                         </div>
                       </div>
-
-                      <button
-                        onClick={() => onAddKid(kidName, kidAvatar, kidPasscodeId)}
-                        disabled={!kidName.trim() || !kidAvatar}
-                        className="btn-primary w-full py-4 text-lg mt-4 shadow-xl shadow-red-900/20"
-                      >
-                        Let's Go! 🚀
-                      </button>
                     </div>
             </div>
 
