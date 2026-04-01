@@ -32,22 +32,37 @@ export function Header({
   onLogout
 }: HeaderProps) {
   const [pressing, setPressing] = useState(false)
+  const [pressProgress, setPressProgress] = useState(0)
   const [searchInput, setSearchInput] = useState(searchQuery)
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null)
   const progressPct = Math.min((minutesUsed / dailyLimit) * 100, 100)
 
   // Long-press on logo to open admin
   const handlePressStart = () => {
     setPressing(true)
+    setPressProgress(0)
+    
+    // Animate progress
+    const startTime = Date.now()
+    progressInterval.current = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      setPressProgress(Math.min((elapsed / LONG_PRESS_MS) * 100, 100))
+    }, 16)
+
     pressTimer.current = setTimeout(() => {
       setPressing(false)
+      setPressProgress(0)
+      if (progressInterval.current) clearInterval(progressInterval.current)
       onAdminOpen()
     }, LONG_PRESS_MS)
   }
 
   const handlePressEnd = () => {
     setPressing(false)
+    setPressProgress(0)
     if (pressTimer.current) clearTimeout(pressTimer.current)
+    if (progressInterval.current) clearInterval(progressInterval.current)
   }
 
   return (
@@ -198,13 +213,39 @@ export function Header({
         </form>
       </div>
 
-      {/* Press progress ring visual */}
+      {/* Press progress indicator visible ONLY when pressing */}
       {pressing && (
-        <div className="fixed top-20 md:top-4 left-1/2 -translate-x-1/2 z-50
-                        bg-slate-900 border border-slate-700 rounded-2xl px-6 py-3
-                        flex items-center gap-3 text-base font-bold text-slate-300 shadow-2xl animate-fade-in">
-          <Lock className="w-5 h-5 text-red-400 animate-pulse" />
-          Hold to open Parent Controls...
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 backdrop-blur-sm animate-fade-in">
+           <div className="relative group p-12">
+              {/* Spinning progress ring */}
+              <svg className="absolute inset-0 w-full h-full -rotate-90">
+                <circle
+                  cx="50%"
+                  cy="50%"
+                  r="60"
+                  className="fill-none stroke-slate-800 stroke-[8]"
+                />
+                <circle
+                  cx="50%"
+                  cy="50%"
+                  r="60"
+                  className="fill-none stroke-red-600 stroke-[8] transition-all duration-75"
+                  strokeDasharray="376.99"
+                  strokeDashoffset={376.99 - (376.99 * pressProgress) / 100}
+                  strokeLinecap="round"
+                />
+              </svg>
+              
+              <div className="relative z-10 flex flex-col items-center gap-4">
+                <div className="w-16 h-16 bg-red-600 rounded-2xl flex items-center justify-center shadow-2xl animate-pulse">
+                   <Lock className="w-8 h-8 text-white" />
+                </div>
+                <div className="text-center">
+                   <p className="text-white font-black text-lg tracking-tight uppercase">Opening Vault</p>
+                   <p className="text-red-400 text-xs font-bold animate-pulse">Hold Steady...</p>
+                </div>
+              </div>
+           </div>
         </div>
       )}
     </header>

@@ -334,16 +334,34 @@ export async function fetchVideosFromChannels(
       } else {
         // Deep search or Force Live Only
         const baseUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&maxResults=${maxResults}${forceLiveOnly ? '&eventType=live' : ''}`
-        let query = searchQuery ? `${searchQuery} -shorts -#shorts` : '-shorts -#shorts'
+        
+        // IMPORTANT: For live discovery, we remove the '-shorts' query as it can sometimes 
+        // conflict with the live index on larger channels.
+        let query = forceLiveOnly ? (searchQuery || '') : (searchQuery ? `${searchQuery} -shorts -#shorts` : '-shorts -#shorts')
         let url = `${baseUrl}&q=${encodeURIComponent(query.trim())}`
         if (pageTokens?.[channelId]) url += `&pageToken=${pageTokens[channelId]}`
         if (videoDuration && videoDuration !== 'any') url += `&videoDuration=${videoDuration}`
         
         data = await smartFetch(url)
-        if (data.nextPageToken) newTokens[channelId] = data.nextPageToken
-        if (!data.items?.length) continue
         
-        videoIdsToFetch = data.items.filter((item: any) => item.id?.videoId).map((item: any) => item.id.videoId)
+        // 🚨 SENIOR FIX: If eventType=live returned nothing, fallback to checking Uploads playlist
+        // This is much more reliable for channels like @disneyjr
+        if (forceLiveOnly && (!data.items || data.items.length === 0)) {
+          console.log(`🔍 Search API found no live streams for ${channelId}. Falling back to Uploads playlist check...`)
+          const uploadsId = channelId.replace('UC', 'UU')
+          const uploadsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=10`
+          const uploadsData = await smartFetch(uploadsUrl)
+          
+          if (uploadsData.items?.length > 0) {
+            // We only keep the items that are actually live
+            videoIdsToFetch = uploadsData.items.map((item: any) => item.contentDetails.videoId)
+          }
+        } else {
+          if (data.nextPageToken) newTokens[channelId] = data.nextPageToken
+          if (data.items?.length) {
+            videoIdsToFetch = data.items.filter((item: any) => item.id?.videoId).map((item: any) => item.id.videoId)
+          }
+        }
       }
 
       if (videoIdsToFetch.length > 0) {
@@ -359,9 +377,12 @@ export async function fetchVideosFromChannels(
            publishedAt: item.snippet.publishedAt,
            durationSeconds: parseDuration(item.contentDetails?.duration || 'PT0S'),
            isLive: item.snippet.liveBroadcastContent === 'live',
-           isSong: item.snippet.title.toLowerCase().includes('song'),
+           isSong: item.snippet.title.toLowerCase().includes('song') || item.snippet.title.toLowerCase().includes('music'),
         }))
-        allVideos.push(...mappedVideos)
+        
+        // If we were force searching for live content, filter only what is active
+        const finalItems = forceLiveOnly ? mappedVideos.filter(v => v.isLive) : mappedVideos
+        allVideos.push(...finalItems)
       }
     } catch (error: any) {
       console.error(`Error fetching channel ${channelId}:`, error)
