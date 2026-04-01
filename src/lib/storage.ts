@@ -175,11 +175,30 @@ export async function resetTodaySession(kidId: string): Promise<void> {
 }
 
 // ─── YouTube API Key Rotation ─────────────────────────────────────
-const RAW_KEYS = import.meta.env.VITE_YOUTUBE_API_KEYS || ''
+const getStoredKeys = () => {
+  try {
+    return localStorage.getItem('tottube_runtime_api_keys') || ''
+  } catch {
+    return ''
+  }
+}
+
+const RAW_KEYS = getStoredKeys() || import.meta.env.VITE_YOUTUBE_API_KEYS || ''
 const API_KEYS = RAW_KEYS.split(',').map((k: string) => k.trim()).filter((k: string) => k && !k.includes('YOUR_'))
+
+if (API_KEYS.length === 0) {
+  console.warn("⚠️ TotTube: No YouTube API keys found! Video fetching will fail. Add VITE_YOUTUBE_API_KEYS=key1,key2 to .env or Vercel.")
+} else {
+  console.log(`✅ TotTube: Initialized with ${API_KEYS.length} API keys starting with ${API_KEYS[0].slice(0, 6)}...`)
+}
 
 let currentKeyIndex = 0
 let totalRotations = 0
+
+export function setRuntimeApiKeys(keys: string) {
+  localStorage.setItem('tottube_runtime_api_keys', keys)
+  window.location.reload() // Reload to apply new keys
+}
 
 export function resetRotationCount() {
   totalRotations = 0
@@ -212,15 +231,22 @@ async function smartFetch(url: string, retryOnQuota = true): Promise<any> {
   const activeKey = getActiveKey()
   const res = await fetch(`${url}&key=${activeKey}`)
   
-  if (res.status === 403) {
+  if (res.status === 403 || res.status === 400) {
     const errorData = await res.json().catch(() => ({}))
-    const msg = errorData.error?.message || 'Forbidden'
-    console.error(`YouTube API ERROR 403 on Key ${currentKeyIndex + 1}: ${msg}`)
+    const msg = errorData.error?.message || 'Forbidden/Bad Request'
+    const reason = errorData.error?.errors?.[0]?.reason || ''
     
-    if (retryOnQuota && rotateKey()) {
+    console.error(`🎬 YouTube API ERROR ${res.status} on Key ${currentKeyIndex % API_KEYS.length + 1}: ${msg} (${reason})`)
+    
+    if (retryOnQuota && (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded' || res.status === 403) && rotateKey()) {
       return smartFetch(url, true)
     }
-    throw new Error('QUOTA_EXCEEDED')
+    
+    if (res.status === 400 && activeKey === 'YOUR_YOUTUBE_API_KEY_HERE') {
+      throw new Error('MISSING_API_KEY')
+    }
+
+    throw new Error(reason === 'quotaExceeded' ? 'QUOTA_EXCEEDED' : `API_ERROR_${res.status}`)
   }
   
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

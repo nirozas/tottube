@@ -15,7 +15,7 @@ import {
   Library
 } from 'lucide-react'
 import { Channel, AppSettings, Kid, Playlist } from '../types'
-import { fetchChannelInfo, fetchPlaylistInfo } from '../lib/storage'
+import { fetchChannelInfo, fetchPlaylistInfo, setRuntimeApiKeys } from '../lib/storage'
 import { PinEntry } from './PinEntry'
 import { KID_AVATARS, PASSCODE_CHARACTERS } from '../constants'
 
@@ -543,9 +543,38 @@ export function AdminModal({
 
               {activeTab === 'settings' && (
                 <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-                   <div className="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50 space-y-6">
+                    <div className="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50 space-y-6">
+                      <div className="w-20 h-20 bg-red-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6">
+                        <Key className="w-10 h-10 text-red-500" />
+                      </div>
+                      <div className="text-center">
+                        <h3 className="text-xl font-black text-white">YouTube API Keys</h3>
+                        <p className="text-slate-400 text-sm mt-1">Add multiples separated by commas for extra quota.</p>
+                      </div>
+
+                      <div className="space-y-4">
+                        <textarea
+                          value={settings.youtubeApiKeys || ''}
+                          onChange={(e) => onUpdateSettings({ ...settings, youtubeApiKeys: e.target.value })}
+                          placeholder="AIzaSy... , AIzaSy..."
+                          className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white text-xs font-mono focus:border-red-500 outline-none min-h-[100px] resize-none"
+                        />
+                        <button
+                          onClick={() => {
+                            if (settings.youtubeApiKeys) {
+                              setRuntimeApiKeys(settings.youtubeApiKeys)
+                            }
+                          }}
+                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-black text-xs uppercase tracking-widest border border-slate-700"
+                        >
+                          Apply & Refresh App
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50 space-y-6">
                       <div className="w-20 h-20 bg-blue-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                        <Key className="w-10 h-10 text-blue-500" />
+                        <Shield className="w-10 h-10 text-blue-500" />
                       </div>
                       <div className="text-center">
                         <h3 className="text-xl font-black text-white">Admin PIN Code</h3>
@@ -562,7 +591,8 @@ export function AdminModal({
 
                       <div className="grid grid-cols-1 gap-3">
                         <input
-                          type="text"
+                          type="password"
+                          inputMode="numeric"
                           maxLength={4}
                           value={settings.adminPin}
                           onChange={(e) => {

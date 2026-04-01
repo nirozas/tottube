@@ -63,6 +63,7 @@ export interface AppSettings {
   shortcuts?: SearchShortcut[];
   kids?: Kid[];
   magicPlaylistId?: string;
+  youtubeApiKeys?: string;
 }
 
 export interface AppState {
