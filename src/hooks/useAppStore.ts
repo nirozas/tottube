@@ -6,9 +6,11 @@ import {
   fetchChannelInfo, fetchPlaylistInfo, fetchVideosFromChannels, fetchPlaylistVideos,
   getTodaySession, saveTodaySession, resetTodaySession,
   getSavedLiveStreams, saveLiveStreams,
-  addShortcut, removeShortcut
+  addShortcut, removeShortcut,
+  loadCachedVideos, saveCachedVideos,
+  getMovies, addMovie, removeMovie
 } from '../lib/storage'
-import { AppSettings, Channel, YouTubeVideo, Kid, Playlist } from '../types'
+import { AppSettings, Channel, YouTubeVideo, Kid, Playlist, Movie } from '../types'
 import { supabase } from '../lib/supabase'
 import { User } from '@supabase/supabase-js'
 
@@ -23,6 +25,7 @@ export function useAppStore() {
   const [currentKid, setCurrentKid] = useState<Kid | null>(null)
   const [channels, setChannels] = useState<Channel[]>([])
   const [playlists, setPlaylists] = useState<Playlist[]>([])
+  const [movies, setMovies] = useState<Movie[]>([])
   const [videos, setVideos] = useState<YouTubeVideo[]>([])
   const [nextTokens, setNextTokens] = useState<Record<string, string>>({})
   const [currentVideo, setCurrentVideo] = useState<YouTubeVideo | null>(null)
@@ -35,6 +38,7 @@ export function useAppStore() {
   const [isPlayerVisible, setIsPlayerVisible] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('all')
+  const [isBedtimeMode, setIsBedtimeMode] = useState(false)
   const [user, setUser] = useState<User | null>(null)
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null) 
 
@@ -72,6 +76,8 @@ export function useAppStore() {
       console.warn('📡 App: Supabase not configured. Using local/offline state.')
       setIsAuthenticated(false)
       setIsLoading(false)
+      const mockMovies = await getMovies()
+      setMovies(mockMovies)
       return
     }
     try {
@@ -89,16 +95,21 @@ export function useAppStore() {
       setIsAuthenticated(true)
       setIsLoading(true)
       
-      const [s, ch, pl] = await Promise.all([
+      const [s, ch, pl, mv] = await Promise.all([
         getSettings(),
         getChannels(),
-        getPlaylists()
+        getPlaylists(),
+        getMovies()
       ])
       
       setSettings({ ...s, isSetup: s.isSetup ?? false })
       setChannels(ch)
       setPlaylists(pl)
+      setMovies(mv)
       setKids(s.kids || [])
+      
+      const cached = loadCachedVideos()
+      if (cached.length > 0) setVideos(cached)
 
       if (ch.length > 0) {
         await harvestContent(ch)
@@ -127,6 +138,7 @@ export function useAppStore() {
         setKids([])
         setChannels([])
         setPlaylists([])
+        setMovies([])
       }
     })
 
@@ -165,8 +177,13 @@ export function useAppStore() {
     // Instead of hitting API, we sort the videos already in memory
     if (cat !== 'all' && cat !== 'live' && !append && !q && !plId) {
        console.log(`🎯 Using Local Smart Filter for: ${cat}`)
-       // We don't call setIsLoading(true) to keep it instant
-       return // The useEffect for activeCategory handles the UI view or we filter in VideoGrid
+       return
+    }
+
+    if (plId === 'movies') {
+       // Movies are local state purely for now
+       setIsLoading(false)
+       return
     }
 
     setIsLoading(true)
@@ -179,7 +196,6 @@ export function useAppStore() {
         console.log("🏦 Loading Live Streams from Supabase Vault...")
         const savedLives = await getSavedLiveStreams()
         
-        // If a specific channel is selected, we ALWAYS perform a deep search as a priority
         if (activeChannelFilter) {
           console.log(`📡 Performing Targeted Live Deep Look for channel: ${activeChannelFilter}`)
           const res = await fetchVideosFromChannels([activeChannelFilter], '', 'any', undefined, true)
@@ -187,16 +203,14 @@ export function useAppStore() {
              await saveLiveStreams(res.videos)
              finalVids = res.videos
           } else {
-             // Fallback to vault if deep look comes up empty (but unlikely if they are live)
              finalVids = savedLives.filter(v => v.channelId === activeChannelFilter)
           }
         } else {
-          // If viewing "All Live", we show everything in the vault
           finalVids = savedLives
         }
       } 
       else if (plId) {
-        if (plId === '__grid__') {
+        if (plId === '__grid__' || plId === 'movies') {
           setIsLoading(false)
           return
         }
@@ -230,16 +244,25 @@ export function useAppStore() {
       }
 
       if (append) {
-        setVideos(prev => [...finalVids, ...prev])
+        const combined = [...videos, ...finalVids]
+        setVideos(combined)
         setNextTokens(prev => ({ ...prev, ...finalTokens }))
+        saveCachedVideos(combined)
       } else {
         setVideos(finalVids)
         setNextTokens(finalTokens)
+        saveCachedVideos(finalVids)
       }
+    } catch (err: any) {
+       console.error('Refresh failed:', err)
+       if (!append) {
+         const cached = loadCachedVideos()
+         if (cached.length) setVideos(cached)
+       }
     } finally {
       setIsLoading(false)
     }
-  }, [channels, playlists, searchQuery, activeCategory, activeChannelFilter, activePlaylistId, nextTokens])
+  }, [channels, playlists, searchQuery, activeCategory, activeChannelFilter, activePlaylistId, nextTokens, videos])
 
   const setCategory = useCallback((cat: string) => {
     setActiveCategory(cat)
@@ -288,6 +311,23 @@ export function useAppStore() {
   const handleRemovePlaylist = async (id: string) => {
     await removePlaylist(id)
     setPlaylists(prev => prev.filter(p => p.id !== id))
+  }
+
+  const handleAddMovie = async (title: string, videoUrl: string, thumbnailUrl: string) => {
+     const movie: Movie = {
+        id: crypto.randomUUID(),
+        title,
+        videoUrl,
+        thumbnailUrl,
+        addedAt: new Date().toISOString()
+     }
+     await addMovie(movie)
+     setMovies(prev => [movie, ...prev])
+  }
+
+  const handleRemoveMovie = async (id: string) => {
+     await removeMovie(id)
+     setMovies(prev => prev.filter(m => m.id !== id))
   }
 
   const handleAddKid = async (name: string, avatar: string, passcodeId?: string) => {
@@ -352,15 +392,18 @@ export function useAppStore() {
   }
 
   return {
-    settings, kids, currentKid, channels, playlists, videos, isLoading,
+    settings, kids, currentKid, channels, playlists, movies, videos, isLoading,
     isAdminOpen, isVaultUnlocked, minutesUsed, activeChannelFilter, activePlaylistId,
     currentVideo, isPlayerVisible, searchQuery, activeCategory,
     setIsAdminOpen, setIsVaultUnlocked, setProfile, refreshVideos, setCategory,
     toggleChannelFilter, togglePlaylistFilter, handleUpdateSettings,
     handleAddChannel, handleRemoveChannel, handleAddPlaylist, handleRemovePlaylist,
+    handleAddMovie, handleRemoveMovie,
     handleAddKid, handleUpdateKid, handleUpdateKidChannels,
     handleAddShortcut, handleRemoveShortcut,
     setCurrentVideo, setIsPlayerVisible, setSearchQuery, onResetTimer, startTimer, stopTimer,
+    isBedtimeMode,
+    setIsBedtimeMode,
     user, isAuthenticated,
     handleLogout: async () => {
       if (supabase) await supabase.auth.signOut()

@@ -11,6 +11,16 @@ export interface YouTubeVideo {
   isLive?: boolean;
   isSong?: boolean;
 }
+export interface Movie {
+  id: string;
+  title: string;
+  thumbnailUrl: string;
+  videoUrl: string;
+  addedAt: string;
+  duration?: string;
+  user_id?: string;
+}
+
 
 export interface Channel {
   channelId: string;
@@ -64,6 +74,7 @@ export interface AppSettings {
   kids?: Kid[];
   magicPlaylistId?: string;
   youtubeApiKeys?: string;
+  movies?: Movie[];
 }
 
 export interface AppState {
@@ -80,4 +91,6 @@ export interface AppState {
   settings: AppSettings;
   activeChannelFilter: string | null;
   activePlaylistId: string | null;
+  activeMovieId: string | null;
+  movies: Movie[];
 }

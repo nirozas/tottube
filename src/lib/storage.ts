@@ -1,4 +1,4 @@
-import { Channel, YouTubeVideo, WatchSession, AppSettings, Playlist, SearchShortcut } from '../types'
+import { Channel, YouTubeVideo, WatchSession, AppSettings, Playlist, SearchShortcut, Movie } from '../types'
 import { supabase, isSupabaseConfigured } from './supabase'
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -118,6 +118,47 @@ export async function addShortcut(shortcut: SearchShortcut): Promise<void> {
 export async function removeShortcut(id: string): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return
   await supabase.from('tottube_shortcuts').delete().eq('id', id)
+}
+
+// ─── Movies ──────────────────────────────────────────────────
+export async function getMovies(): Promise<Movie[]> {
+  if (!isSupabaseConfigured || !supabase) {
+    try {
+      const raw = localStorage.getItem('tottube_movies_fallback')
+      return raw ? JSON.parse(raw) : []
+    } catch { return [] }
+  }
+  try {
+    const { data, error } = await supabase.from('tottube_movies').select('*').order('addedAt', { ascending: false })
+    if (error) throw error
+    return (data as Movie[]) || []
+  } catch (err) {
+    console.error('Failed to get movies from Supabase:', err)
+    return []
+  }
+}
+
+export async function addMovie(movie: Movie): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    const current = await getMovies()
+    const updated = [movie, ...current]
+    localStorage.setItem('tottube_movies_fallback', JSON.stringify(updated))
+    return
+  }
+  const { data: { user } } = await supabase.auth.getUser()
+  const payload = { ...movie, user_id: user?.id }
+  const { error } = await supabase.from('tottube_movies').upsert(payload, { onConflict: 'id' })
+  if (error) console.error('Failed to save movie:', error)
+}
+
+export async function removeMovie(id: string): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    const current = await getMovies()
+    const updated = current.filter(m => m.id !== id)
+    localStorage.setItem('tottube_movies_fallback', JSON.stringify(updated))
+    return
+  }
+  await supabase.from('tottube_movies').delete().eq('id', id)
 }
 
 // ─── Live Vault (Radar) ──────────────────────────────────────
@@ -253,6 +294,30 @@ async function smartFetch(url: string, retryOnQuota = true): Promise<any> {
   return res.json()
 }
 
+// ─── Offline Caching (Phase 3) ───────────────────────────────────
+const CACHE_KEY = 'tottube_video_cache'
+const CACHE_TTL = 1000 * 60 * 60 * 2 // 2 hours
+
+export function saveCachedVideos(videos: YouTubeVideo[]) {
+  try {
+    const data = {
+      timestamp: Date.now(),
+      videos: videos.slice(0, 100) // Only cache top 100 for storage limits
+    }
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data))
+  } catch (e) { console.warn('Cache save failed:', e) }
+}
+
+export function loadCachedVideos(): YouTubeVideo[] {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY)
+    if (!raw) return []
+    const data = JSON.parse(raw)
+    if (Date.now() - data.timestamp > CACHE_TTL) return []
+    return data.videos || []
+  } catch { return [] }
+}
+
 // ─── YouTube API ────────────────────────────────────────────────
 export async function fetchChannelInfo(channelIdOrHandle: string): Promise<any> {
   const isChannelId = channelIdOrHandle.startsWith('UC')
@@ -349,7 +414,7 @@ export async function fetchVideosFromChannels(
         if (forceLiveOnly && (!data.items || data.items.length === 0)) {
           console.log(`🔍 Search API found no live streams for ${channelId}. Falling back to Uploads playlist check...`)
           const uploadsId = channelId.replace('UC', 'UU')
-          const uploadsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=10`
+          const uploadsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=20`
           const uploadsData = await smartFetch(uploadsUrl)
           
           if (uploadsData.items?.length > 0) {

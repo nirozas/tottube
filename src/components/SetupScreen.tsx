@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Shield, ChevronRight, Mail, Key, User, Plus } from 'lucide-react'
+import { Shield, ChevronRight, Mail, Key, Plus } from 'lucide-react'
 import { supabase, isSupabaseConfigured } from '../lib/supabase'
 import { KID_AVATARS, PASSCODE_CHARACTERS } from '../constants'
 
@@ -8,7 +8,7 @@ interface SetupScreenProps {
   onAddKid: (name: string, avatarUrl: string, passcodeAvatarId?: string) => Promise<void>
 }
 
-type SetupStep = 'auth' | 'pin' | 'profile'
+type SetupStep = 'auth' | 'pin' | 'profile' | 'shortcuts'
 
 export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
   const [step, setStep] = useState<SetupStep>('auth')
@@ -22,6 +22,7 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
   const [kidName, setKidName] = useState('')
   const [kidAvatar, setKidAvatar] = useState(KID_AVATARS[0].url)
   const [kidPasscodeId, setKidPasscodeId] = useState<string>(KID_AVATARS[0].id)
+  const [selectedShortcuts, setSelectedShortcuts] = useState<{k:string, i:string}[]>([])
   const [error, setError] = useState('')
 
   // Check if session exists on mount
@@ -116,18 +117,38 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
     setStep('profile')
   }
 
-  const handleFinishSetup = async (e: React.FormEvent) => {
+  const handleProfileSetup = (e: React.FormEvent) => {
     e.preventDefault()
     if (!kidName.trim()) {
       setError('Please enter your child\'s name.')
       return
     }
+    setStep('shortcuts')
+  }
+
+  const handleFinishSetup = async () => {
     setIsLoading(true)
+    setError('')
     try {
       await onAddKid(kidName.trim(), kidAvatar, kidPasscodeId)
+      
+      // Add selected shortcuts if any
+      if (selectedShortcuts.length > 0 && supabase) {
+        const { data: settingsData } = await supabase.from('tottube_settings').select('shortcuts').maybeSingle()
+        const currentShortcuts = settingsData?.shortcuts || []
+        const newShortcuts = [...currentShortcuts, ...selectedShortcuts.map(s => ({
+          id: Math.random().toString(36).substr(2, 9),
+          keyword: s.k,
+          imageUrl: s.i
+        }))]
+        await supabase.from('tottube_settings').update({ shortcuts: newShortcuts, isSetup: true }).eq('email', email)
+      } else if (supabase) {
+        await supabase.from('tottube_settings').update({ isSetup: true }).eq('email', email)
+      }
+
       onComplete(email, pin)
     } catch (err: any) {
-      setError(err.message || 'Failed to create profile.')
+      setError(err.message || 'Failed to finish setup.')
     } finally {
       setIsLoading(false)
     }
@@ -270,87 +291,131 @@ export function SetupScreen({ onComplete, onAddKid }: SetupScreenProps) {
               <ChevronRight className="w-5 h-5 ml-1" />
             </button>
           </form>
-        ) : (
-          <form onSubmit={handleFinishSetup} className="space-y-6 animate-fade-in">
-            <div className="flex flex-col items-center mb-6">
-              <div className="relative group">
-                <div className="w-24 h-24 rounded-3xl bg-slate-800 border-2 border-red-500/50 overflow-hidden shadow-xl">
-                  <img src={kidAvatar} alt="avatar" className="w-full h-full object-cover" />
+        ) : step === 'profile' ? (
+          <form onSubmit={handleProfileSetup} className="space-y-6 animate-fade-in">
+             <div className="flex flex-col items-center mb-6">
+                <div className="relative group">
+                  <div className="w-24 h-24 rounded-3xl bg-slate-800 border-2 border-red-500/50 overflow-hidden shadow-xl">
+                    <img src={kidAvatar} alt="avatar" className="w-full h-full object-cover" />
+                  </div>
+                  <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-red-600 border-2 border-slate-900 flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-white" />
+                  </div>
                 </div>
-                <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-red-600 border-2 border-slate-900 flex items-center justify-center">
-                  <Plus className="w-4 h-4 text-white" />
-                </div>
-              </div>
-              <div className="space-y-4">
-                      {/* Avatar Picker */}
-                      <div className="space-y-3">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Pick your Profile Character</p>
-                        <div className="flex flex-wrap justify-center gap-3">
-                          {KID_AVATARS.map((ava) => (
-                            <button
-                              key={'setup_ava_'+ava.id}
-                              onClick={() => setKidAvatar(ava.url)}
-                              className={`w-14 h-14 rounded-2xl overflow-hidden border-2 transition-all ${
-                                kidAvatar === ava.url ? 'border-red-500 scale-110 shadow-lg shadow-red-900/20' : 'border-transparent opacity-40 hover:opacity-100'
-                              }`}
-                            >
-                              <img src={ava.url} alt={ava.name} className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Passcode Picker */}
-                      <div className="space-y-3 pt-4 border-t border-slate-800">
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider text-center">Pick your Secret Unlock Character</p>
-                        <div className="flex flex-wrap justify-center gap-3">
-                          {PASSCODE_CHARACTERS.map((ava) => (
-                            <button
-                              key={'setup_pass_'+ava.id}
-                              onClick={() => setKidPasscodeId(ava.id)}
-                              className={`w-14 h-14 rounded-2xl overflow-hidden border-2 transition-all ${
-                                kidPasscodeId === ava.id ? 'border-blue-500 scale-110 shadow-lg shadow-blue-900/20' : 'border-transparent opacity-40 hover:opacity-100'
-                              }`}
-                            >
-                              <img src={ava.url} alt={ava.name} className="w-full h-full object-cover" />
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+                <div className="pt-8 space-y-6 w-full">
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Profile Character</p>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {KID_AVATARS.slice(0, 8).map((ava) => (
+                        <button
+                          key={'setup_ava_'+ava.id}
+                          type="button"
+                          onClick={() => setKidAvatar(ava.url)}
+                          className={`w-12 h-12 rounded-2xl overflow-hidden border-2 transition-all ${
+                            kidAvatar === ava.url ? 'border-red-500 scale-110 shadow-lg shadow-red-900/20' : 'border-transparent opacity-40 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={ava.url} alt={ava.name} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
                     </div>
-            </div>
+                  </div>
 
-            <div>
-              <label className="block text-sm font-bold text-slate-300 mb-2">Kid's Name</label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={kidName}
-                  onChange={(e) => setKidName(e.target.value)}
-                  placeholder="e.g. Leo"
-                  className="input-field w-full pl-10"
-                  autoFocus
-                />
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              </div>
-            </div>
+                  <div className="space-y-3 pt-6 border-t border-slate-800/50">
+                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest text-center">Secret Unlock Friend</p>
+                    <div className="flex flex-wrap justify-center gap-3">
+                      {PASSCODE_CHARACTERS.slice(0, 8).map((ava) => (
+                        <button
+                          key={'setup_pass_'+ava.id}
+                          type="button"
+                          onClick={() => setKidPasscodeId(ava.id)}
+                          className={`w-12 h-12 rounded-2xl overflow-hidden border-2 transition-all ${
+                            kidPasscodeId === ava.id ? 'border-blue-500 scale-110 shadow-lg shadow-blue-900/20' : 'border-transparent opacity-40 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={ava.url} alt={ava.name} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+             </div>
 
-            {error && (
-              <div className="p-3 rounded-xl bg-red-950/50 border border-red-900/50 text-red-400 text-sm font-medium flex items-center gap-2 animate-fade-in">
-                <Shield className="w-4 h-4 flex-shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
+             <div>
+               <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest mb-2 px-1">Kid's Name</label>
+               <input
+                 type="text"
+                 value={kidName}
+                 onChange={(e) => setKidName(e.target.value)}
+                 placeholder="e.g. Leo"
+                 className="input-field w-full text-center text-xl font-black"
+                 autoFocus
+               />
+             </div>
 
-            <button
-              type="submit"
-              className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-lg mt-4 disabled:opacity-50"
-              disabled={!kidName.trim() || isLoading}
-            >
-              {isLoading ? 'Creating Profile...' : 'Finish & Enter TotTube'}
-              <ChevronRight className="w-5 h-5 ml-1" />
-            </button>
+             <button
+               type="submit"
+               className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-lg mt-4 disabled:opacity-50"
+               disabled={!kidName.trim()}
+             >
+               Next: Magic Shortcuts
+               <ChevronRight className="w-5 h-5 ml-1" />
+             </button>
           </form>
+        ) : (
+          <div className="animate-fade-in space-y-8">
+             <div className="text-center">
+                <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em] mb-2">Almost Done!</p>
+                <h2 className="text-2xl font-black text-white">Pick Magic Shortcuts</h2>
+                <p className="text-slate-400 text-xs font-medium mt-1 px-4">These appear on the kid's screen for quick searches.</p>
+             </div>
+
+             <div className="grid grid-cols-3 gap-3">
+                {[
+                  { k: 'Space', i: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=150' },
+                  { k: 'Dinosaurs', i: 'https://images.unsplash.com/photo-1584844308364-9e43f2cfaa3a?auto=format&fit=crop&q=80&w=150' },
+                  { k: 'Trucks', i: 'https://images.unsplash.com/photo-1519003722824-191d446bd382?auto=format&fit=crop&q=80&w=150' },
+                  { k: 'Animals', i: 'https://images.unsplash.com/photo-1583337130417-3346a1be7dee?auto=format&fit=crop&q=80&w=150' },
+                  { k: 'Songs', i: 'https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&q=80&w=150' },
+                  { k: 'Disney', i: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcR_D98jWOfv3J0_Tlvx_9J403Jm9_G6vGfsqG6vGfsq' }
+                ].map(sc => {
+                  const isSelected = selectedShortcuts.some(s => s.k === sc.k)
+                  return (
+                    <button
+                      key={sc.k}
+                      onClick={() => {
+                        if (isSelected) setSelectedShortcuts(prev => prev.filter(s => s.k !== sc.k))
+                        else setSelectedShortcuts(prev => [...prev, sc])
+                      }}
+                      className={`relative aspect-square rounded-[1.5rem] overflow-hidden border-4 transition-all
+                        ${isSelected ? 'border-red-500 scale-105 shadow-xl' : 'border-slate-800 opacity-40 hover:opacity-100'}`}
+                    >
+                      <img src={sc.i} className="w-full h-full object-cover" alt="" />
+                      <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                         <span className="text-[10px] font-black text-white uppercase tracking-wider">{sc.k}</span>
+                      </div>
+                    </button>
+                  )
+                })}
+             </div>
+
+             <div className="pt-4">
+                <button
+                  onClick={handleFinishSetup}
+                  className="btn-primary w-full flex items-center justify-center gap-2 py-4 text-lg disabled:opacity-50"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Setting up Vault...' : 'Finish & Enter TotTube'}
+                  {!isLoading && <ChevronRight className="w-5 h-5 ml-1" />}
+                </button>
+                <button 
+                  onClick={() => setStep('profile')}
+                  className="w-full text-slate-500 text-xs font-black uppercase tracking-widest mt-6 hover:text-slate-300"
+                >
+                  Back to Profile
+                </button>
+             </div>
+          </div>
         )}
       </div>
     </div>

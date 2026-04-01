@@ -1,4 +1,4 @@
-import { Home, Tv, Library, Sparkles } from 'lucide-react'
+import { Home, Tv, Library, Sparkles, Film } from 'lucide-react'
 import { Channel, Playlist } from '../types'
 
 interface SidebarProps {
@@ -71,6 +71,18 @@ export function Sidebar({
           >
             <Library className="w-6 h-6 flex-shrink-0" />
             <span className="text-sm">Playlists</span>
+          </button>
+
+          {/* Movies Link */}
+          <button
+            onClick={() => { onPlaylistFilter('movies'); onClose() }}
+            className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 tap-target
+              ${activePlaylistId === 'movies'
+                ? 'bg-slate-800 text-white border border-slate-700 shadow-inner font-black' 
+                : 'text-slate-400 hover:text-white hover:bg-slate-800 font-bold'}`}
+          >
+            <Film className="w-6 h-6 flex-shrink-0" />
+            <span className="text-sm">Movies</span>
           </button>
 
           {/* Approved Channels Section */}

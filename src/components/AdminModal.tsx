@@ -1,20 +1,9 @@
 import { useState } from 'react'
-import {
-  X,
-  Plus,
-  Trash2,
-  Settings as SettingsIcon,
-  Loader2,
-  Timer,
-  Shield,
-  Key,
-  Users,
-  Film,
-  Search as SearchIcon,
-  Sparkles,
-  Library
+import { 
+  Shield, Users, Key, Loader2, SearchIcon, X, Trash2, 
+  Settings as SettingsIcon, Timer, Film, Sparkles, Library, Moon, Plus
 } from 'lucide-react'
-import { Channel, AppSettings, Kid, Playlist } from '../types'
+import { Channel, AppSettings, Kid, Playlist, Movie } from '../types'
 import { fetchChannelInfo, fetchPlaylistInfo, setRuntimeApiKeys } from '../lib/storage'
 import { PinEntry } from './PinEntry'
 import { KID_AVATARS, PASSCODE_CHARACTERS } from '../constants'
@@ -32,6 +21,8 @@ interface AdminModalProps {
   kids: Kid[]
   currentKid: Kid | null
   minutesUsed: number
+  isBedtimeMode: boolean
+  setIsBedtimeMode: (mode: boolean) => void
   onAddChannel: (id: string) => Promise<any>
   onRemoveChannel: (id: string) => void
   onAddPlaylist: (id: string) => Promise<void>
@@ -41,7 +32,10 @@ interface AdminModalProps {
   onUpdateKid: (id: string, name: string, avatar: string, passcodeId: string) => Promise<void>
   onUpdateKidChannels: (kidId: string, channelIds: string[]) => void
   onAddShortcut: (keyword: string, imageUrl: string) => Promise<void>
-  onRemoveShortcut: (id: string) => Promise<void>
+  onRemoveShortcut: (id: string) => void
+  movies: Movie[]
+  onAddMovie: (title: string, videoUrl: string, thumbnailUrl: string) => Promise<void>
+  onRemoveMovie: (id: string) => void
   onResetTimer: (kidId: string) => void
   onSwitchProfile: () => void
   onLogout: () => Promise<void>
@@ -56,7 +50,10 @@ export function AdminModal({
   playlists,
   settings,
   kids,
+  currentKid,
   minutesUsed,
+  isBedtimeMode,
+  setIsBedtimeMode,
   onAddChannel,
   onRemoveChannel,
   onAddPlaylist,
@@ -64,21 +61,32 @@ export function AdminModal({
   onUpdateSettings,
   onAddKid,
   onUpdateKid,
+  onUpdateKidChannels,
   onAddShortcut,
   onRemoveShortcut,
+  movies,
+  onAddMovie,
+  onRemoveMovie,
+  onResetTimer,
   onLogout,
 }: AdminModalProps) {
   const [activeTab, setActiveTab] = useState<'content' | 'profiles' | 'timer' | 'settings'>('content')
-  const [contentType, setContentType] = useState<'channels' | 'playlists' | 'shortcuts'>('channels')
+  const [contentType, setContentType] = useState<'channels' | 'playlists' | 'shortcuts' | 'movies'>('channels')
   
   const [channelInput, setChannelInput] = useState('')
   const [playlistInput, setPlaylistInput] = useState('')
+  const [movieTitle, setMovieTitle] = useState('')
+  const [movieUrl, setMovieUrl] = useState('')
+  const [movieThumb, setMovieThumb] = useState('')
   const [shortcutKeyword, setShortcutKeyword] = useState('')
   const [shortcutImage, setShortcutImage] = useState('')
   
   const [addStatus, setAddStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [addError, setAddError] = useState('')
   const [preview, setPreview] = useState<any>(null)
+
+  const [isBulkMode, setIsBulkMode] = useState(false)
+  const [bulkInput, setBulkInput] = useState('')
 
   const [kidName, setKidName] = useState('')
   const [kidAvatar, setKidAvatar] = useState(KID_AVATARS[0].url)
@@ -93,7 +101,6 @@ export function AdminModal({
     let input = channelInput.trim()
     if (!input) return
     
-    // Extract handle or ID from URL if present
     const atMatch = input.match(/@([a-zA-Z0-9._-]+)/)
     const idMatch = input.match(/channel\/([a-zA-Z0-9_-]{24})/)
     const target = atMatch ? `@${atMatch[1]}` : idMatch ? idMatch[1] : input
@@ -122,7 +129,6 @@ export function AdminModal({
     let input = playlistInput.trim()
     if (!input) return
     
-    // Extract List ID from URL if present
     const listMatch = input.match(/(?:\?|&)list=([a-zA-Z0-9_-]+)/)
     const playlistId = listMatch ? listMatch[1] : input
 
@@ -165,6 +171,37 @@ export function AdminModal({
     }
   }
 
+  const handleBulkAdd = async () => {
+    const handles = bulkInput.split(/[\n,]/).map(h => h.trim()).filter(h => h)
+    if (!handles.length) return
+    
+    setAddStatus('loading')
+    let successCount = 0
+    let failedHandles: string[] = []
+
+    for (const handle of handles) {
+      try {
+        const atMatch = handle.match(/@([a-zA-Z0-9._-]+)/)
+        const idMatch = handle.match(/channel\/([a-zA-Z0-9_-]{24})/)
+        const target = atMatch ? `@${atMatch[1]}` : idMatch ? idMatch[1] : handle
+        
+        await onAddChannel(target)
+        successCount++
+      } catch (e) {
+        failedHandles.push(handle)
+      }
+    }
+
+    if (failedHandles.length > 0) {
+      setAddError(`Added ${successCount} channels. Failed: ${failedHandles.join(', ')}`)
+      setAddStatus('error')
+    } else {
+      setBulkInput('')
+      setAddStatus('success')
+      setTimeout(() => setAddStatus('idle'), 3000)
+    }
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center animate-fade-in">
       <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={onClose} />
@@ -180,7 +217,6 @@ export function AdminModal({
           />
         ) : (
           <>
-            {/* Header */}
             <div className="p-8 pb-0 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="bg-red-500/20 p-3 rounded-2xl">
@@ -202,7 +238,6 @@ export function AdminModal({
               </button>
             </div>
 
-            {/* Main Tabs */}
             <div className="flex gap-2 p-8 overflow-x-auto scrollbar-hide">
               {[
                 { id: 'content', icon: Library, label: 'Approved Content' },
@@ -224,12 +259,10 @@ export function AdminModal({
               ))}
             </div>
 
-            {/* Content Area */}
             <div className="flex-1 overflow-y-auto p-8 pt-0 space-y-8">
               
               {activeTab === 'content' && (
                 <div className="space-y-8">
-                  {/* Content Switcher */}
                   <div className="flex bg-slate-800/50 p-1.5 rounded-[1.5rem] border border-slate-700/30">
                     <button 
                       onClick={() => { setContentType('channels'); setPreview(null); setAddStatus('idle') }}
@@ -252,30 +285,36 @@ export function AdminModal({
                     >
                       <SearchIcon className="w-4 h-4" /> Discover
                     </button>
+                    <button 
+                      onClick={() => { setContentType('movies'); setPreview(null); setAddStatus('idle') }}
+                      className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-[1rem] text-xs font-black uppercase tracking-widest transition-all
+                        ${contentType === 'movies' ? 'bg-slate-700 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      <Film className="w-4 h-4" /> Movies
+                    </button>
                   </div>
 
-                  {/* Add Form */}
                   <div className="bg-slate-800/40 rounded-[2.5rem] p-6 border border-slate-700/50 space-y-5">
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] px-1">
                       {contentType === 'shortcuts' ? 'Create Quick Search Keyword' : `Add New ${contentType === 'channels' ? 'Channel' : 'Playlist'}`}
                     </h3>
 
                     {contentType === 'shortcuts' ? (
-                      <div className="space-y-3">
-                        <div className="flex gap-2">
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                            <input
                             type="text"
                             value={shortcutKeyword}
                             onChange={e => setShortcutKeyword(e.target.value)}
-                            placeholder="Keyword (e.g. Bluey, Space)..."
-                            className="flex-1 bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                            placeholder="Keyword (e.g. Leo, Space)..."
+                            className="bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
                           />
                           <input
                             type="text"
                             value={shortcutImage}
                             onChange={e => setShortcutImage(e.target.value)}
                             placeholder="Image URL..."
-                            className="flex-1 bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                            className="bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
                           />
                         </div>
                         <button
@@ -289,26 +328,149 @@ export function AdminModal({
                         >
                           Add Magic Shortcut
                         </button>
+                        
+                        <div className="pt-4 border-t border-slate-700/30">
+                          <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-3 text-center">Or use a Magic Template</p>
+                          <div className="flex flex-wrap justify-center gap-2">
+                            {[
+                              { k: 'Space', i: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&q=80&w=200' },
+                              { k: 'Animals', i: 'https://images.unsplash.com/photo-1583337130417-3346a1be7dee?auto=format&fit=crop&q=80&w=200' },
+                              { k: 'Dinosaurs', i: 'https://images.unsplash.com/photo-1584844308364-9e43f2cfaa3a?auto=format&fit=crop&q=80&w=200' },
+                              { k: 'Trucks', i: 'https://images.unsplash.com/photo-1519003722824-191d446bd382?auto=format&fit=crop&q=80&w=200' },
+                              { k: 'Leo', i: 'https://images.unsplash.com/photo-1603126857599-f6e157fa2fe6?auto=format&fit=crop&q=80&w=200' }
+                            ].map(tpl => (
+                              <button
+                                key={tpl.k}
+                                onClick={() => onAddShortcut(tpl.k, tpl.i)}
+                                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-xs font-bold text-slate-300 transition-all active:scale-95"
+                              >
+                                🪄 {tpl.k}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    ) : contentType === 'movies' ? (
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 gap-3">
+                          <input
+                            type="text"
+                            value={movieTitle}
+                            onChange={e => setMovieTitle(e.target.value)}
+                            placeholder="Movie Title..."
+                            className="bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                          />
+                          <input
+                            type="text"
+                            value={movieUrl}
+                            onChange={e => setMovieUrl(e.target.value)}
+                            placeholder="Video URL (Direct link or YouTube/Vimeo)..."
+                            className="bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                          />
+                          <input
+                            type="text"
+                            value={movieThumb}
+                            onChange={e => setMovieThumb(e.target.value)}
+                            placeholder="Thumbnail URL (Optional)..."
+                            className="bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                          />
+                        </div>
+                        <button
+                          onClick={async () => {
+                            setAddStatus('loading')
+                            try {
+                              await onAddMovie(movieTitle, movieUrl, movieThumb || 'https://images.unsplash.com/photo-1485846234645-a62644f84728?auto=format&fit=crop&q=80&w=200')
+                              setMovieTitle('')
+                              setMovieUrl('')
+                              setMovieThumb('')
+                              setAddStatus('success')
+                              setTimeout(() => setAddStatus('idle'), 2000)
+                            } catch (e: any) {
+                              setAddError(e.message || 'Add Failed')
+                              setAddStatus('error')
+                            }
+                          }}
+                          disabled={!movieTitle.trim() || !movieUrl.trim()}
+                          className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-2xl font-black transition-all disabled:opacity-30 active:scale-95 shadow-xl shadow-red-900/40"
+                        >
+                          {addStatus === 'loading' ? 'Saving Movie...' : 'Add Movie to Vault'}
+                        </button>
+                      </div>
+                    ) : contentType === 'channels' ? (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between px-1">
+                          <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Adding Method</p>
+                          <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
+                             <button 
+                               onClick={() => setIsBulkMode(false)}
+                               className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${!isBulkMode ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500'}`}
+                             >Single</button>
+                             <button 
+                               onClick={() => setIsBulkMode(true)}
+                               className={`px-3 py-1 text-[10px] font-black rounded-md transition-all ${isBulkMode ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500'}`}
+                             >Bulk</button>
+                          </div>
+                        </div>
+
+                        {isBulkMode ? (
+                          <div className="space-y-4">
+                            <textarea
+                              value={bulkInput}
+                              onChange={e => setBulkInput(e.target.value)}
+                              placeholder="Paste multiple @handles or channel IDs... (one per line)"
+                              className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black min-h-[120px] resize-none"
+                            />
+                            <button
+                              onClick={handleBulkAdd}
+                              disabled={addStatus === 'loading' || !bulkInput.trim()}
+                              className="w-full bg-red-600 hover:bg-red-500 text-white py-4 rounded-2xl font-black transition-all disabled:opacity-30 active:scale-95 shadow-xl shadow-red-900/40"
+                            >
+                               {addStatus === 'loading' ? 'Adding to Vault...' : 'Bulk Add Channels'}
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex gap-2">
+                            <input
+                              autoFocus
+                              type="text"
+                              value={channelInput}
+                              onChange={e => { 
+                                setChannelInput(e.target.value)
+                                setAddStatus('idle')
+                                setPreview(null) 
+                              }}
+                              placeholder="@handle or channel ID..."
+                              className="flex-1 bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
+                              onKeyDown={e => e.key === 'Enter' && handleChannelPreview()}
+                            />
+                            <button
+                              onClick={handleChannelPreview}
+                              disabled={addStatus === 'loading' || !channelInput.trim()}
+                              className="bg-slate-700 hover:bg-slate-600 text-white px-8 rounded-2xl font-black transition-all disabled:opacity-30 active:scale-95 shadow-md shadow-black/20"
+                            >
+                              {addStatus === 'loading' ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : <SearchIcon className="w-5 h-5" />}
+                            </button>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex gap-2">
                         <input
                           autoFocus
                           type="text"
-                          value={contentType === 'channels' ? channelInput : playlistInput}
+                          value={playlistInput}
                           onChange={e => { 
-                            if (contentType === 'channels') setChannelInput(e.target.value)
-                            else setPlaylistInput(e.target.value)
+                            setPlaylistInput(e.target.value)
                             setAddStatus('idle')
                             setPreview(null) 
                           }}
-                          placeholder={contentType === 'channels' ? "@handle or channel ID..." : "YouTube Playlist ID (PL...)"}
+                          placeholder="YouTube Playlist ID (PL...)"
                           className="flex-1 bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white focus:border-red-500 outline-none transition-all font-black"
-                          onKeyDown={e => e.key === 'Enter' && (contentType === 'channels' ? handleChannelPreview() : handlePlaylistPreview())}
+                          onKeyDown={e => e.key === 'Enter' && handlePlaylistPreview()}
                         />
                         <button
-                          onClick={contentType === 'channels' ? handleChannelPreview : handlePlaylistPreview}
-                          disabled={addStatus === 'loading' || !(contentType === 'channels' ? channelInput : playlistInput).trim()}
+                          onClick={handlePlaylistPreview}
+                          disabled={addStatus === 'loading' || !playlistInput.trim()}
                           className="bg-slate-700 hover:bg-slate-600 text-white px-8 rounded-2xl font-black transition-all disabled:opacity-30 active:scale-95 shadow-md shadow-black/20"
                         >
                           {addStatus === 'loading' ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : <SearchIcon className="w-5 h-5" />}
@@ -342,6 +504,8 @@ export function AdminModal({
                     <h3 className="text-xs font-black text-slate-500 uppercase tracking-[0.2em] px-1">
                       {contentType === 'shortcuts' 
                         ? `Active Shortcuts (${(settings.shortcuts || []).length})`
+                        : contentType === 'movies'
+                        ? `Movies Vault (${movies.length})`
                         : `Approved ${contentType === 'channels' ? 'Channels' : 'Playlists'} (${contentType === 'channels' ? channels.length : playlists.length})`}
                     </h3>
                     
@@ -358,6 +522,22 @@ export function AdminModal({
                               onClick={() => {
                                 onRemoveShortcut(sc.id)
                               }}
+                              className="text-slate-600 hover:text-red-500 p-3 hover:bg-red-500/10 rounded-2xl transition-all sm:opacity-0 group-hover:opacity-100"
+                            >
+                              <Trash2 className="w-6 h-6" />
+                            </button>
+                          </div>
+                        ))
+                      ) : contentType === 'movies' ? (
+                        movies.map(movie => (
+                          <div key={movie.id} className="bg-slate-800/40 border-2 border-slate-700/30 p-5 rounded-[2rem] flex items-center gap-5 group hover:border-slate-600 transition-all shadow-sm">
+                            <img src={movie.thumbnailUrl} className="w-12 h-12 rounded-2xl shadow-lg ring-2 ring-slate-700 object-cover" alt="" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-white font-black text-lg truncate">{movie.title}</p>
+                              <p className="text-slate-500 text-xs font-bold truncate tracking-tight">{movie.videoUrl.slice(0, 40)}...</p>
+                            </div>
+                            <button
+                              onClick={() => onRemoveMovie(movie.id)}
                               className="text-slate-600 hover:text-red-500 p-3 hover:bg-red-500/10 rounded-2xl transition-all sm:opacity-0 group-hover:opacity-100"
                             >
                               <Trash2 className="w-6 h-6" />
@@ -489,6 +669,32 @@ export function AdminModal({
                         </div>
                       </div>
 
+                      <div className="space-y-4 pt-4 border-t border-slate-800">
+                        <h3 className="text-xs font-black text-slate-500 uppercase tracking-widest text-center">Approved Channels</h3>
+                        <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2 scrollbar-hide">
+                          {channels.map(ch => {
+                            const isSelected = kids.find(k => k.id === editingKidId)?.allowedChannels?.includes(ch.channelId)
+                            return (
+                              <button
+                                key={ch.channelId}
+                                onClick={() => {
+                                  if (!editingKidId) return
+                                  const current = kids.find(k => k.id === editingKidId)?.allowedChannels || []
+                                  if (isSelected) onUpdateKidChannels(editingKidId, current.filter(id => id !== ch.channelId))
+                                  else onUpdateKidChannels(editingKidId, [...current, ch.channelId])
+                                }}
+                                className={`flex items-center gap-3 p-3 rounded-2xl border transition-all
+                                  ${isSelected ? 'bg-red-500/10 border-red-500 text-white' : 'bg-slate-900 border-slate-800 text-slate-500'}`}
+                              >
+                                <img src={ch.avatarUrl} className="w-6 h-6 rounded-lg" alt="" />
+                                <span className="text-xs font-bold truncate">{ch.name}</span>
+                                <div className={`ml-auto w-4 h-4 rounded-full border-2 ${isSelected ? 'bg-red-500 border-red-500' : 'border-slate-700'}`} />
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+
                       <button
                         onClick={() => {
                           if (editingKidId) onUpdateKid(editingKidId, kidName, kidAvatar, kidPasscodeId)
@@ -536,6 +742,15 @@ export function AdminModal({
                       <div className="text-4xl font-black text-white tabular-nums tracking-tight">
                         {Math.floor(minutesUsed)} <span className="text-slate-600 text-xl">minutes consumed</span>
                       </div>
+                      <button
+                        onClick={() => {
+                          if (currentKid) onResetTimer(currentKid.id)
+                          else if (confirm('Reset usage for ALL kids?')) kids.forEach(k => onResetTimer(k.id))
+                        }}
+                        className="mt-6 bg-slate-800 hover:bg-slate-700 text-slate-300 px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-slate-700 transition-all active:scale-95"
+                      >
+                        Reset Daily Timer
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -548,62 +763,72 @@ export function AdminModal({
                         <Key className="w-10 h-10 text-red-500" />
                       </div>
                       <div className="text-center">
-                        <h3 className="text-xl font-black text-white">YouTube API Keys</h3>
-                        <p className="text-slate-400 text-sm mt-1">Add multiples separated by commas for extra quota.</p>
+                        <h3 className="text-xl font-black text-white">Security Controls</h3>
+                        <p className="text-slate-400 text-sm mt-1">Manage app access and API configuration.</p>
                       </div>
 
                       <div className="space-y-4">
-                        <textarea
-                          value={settings.youtubeApiKeys || ''}
-                          onChange={(e) => onUpdateSettings({ ...settings, youtubeApiKeys: e.target.value })}
-                          placeholder="AIzaSy... , AIzaSy..."
-                          className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white text-xs font-mono focus:border-red-500 outline-none min-h-[100px] resize-none"
-                        />
-                        <button
-                          onClick={() => {
-                            if (settings.youtubeApiKeys) {
-                              setRuntimeApiKeys(settings.youtubeApiKeys)
-                            }
-                          }}
-                          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-black text-xs uppercase tracking-widest border border-slate-700"
-                        >
-                          Apply & Refresh App
-                        </button>
+                        <div className="flex items-center justify-between p-5 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg">
+                          <div className="flex items-center gap-4">
+                            <div className={`p-3 rounded-2xl ${isBedtimeMode ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800 text-slate-500'}`}>
+                               <Moon className="w-5 h-5" />
+                            </div>
+                            <div>
+                               <p className="text-white font-black text-sm">Bedtime Mode</p>
+                               <p className="text-slate-500 text-[10px] font-bold">Dims screen & shows stars</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => setIsBedtimeMode(!isBedtimeMode)}
+                            className={`w-14 h-8 rounded-full relative transition-all duration-300 ${isBedtimeMode ? 'bg-indigo-600 shadow-lg shadow-indigo-900/40' : 'bg-slate-800'}`}
+                          >
+                            <div className={`absolute top-1 w-6 h-6 rounded-full bg-white transition-all duration-300 shadow-md ${isBedtimeMode ? 'left-7' : 'left-1'}`} />
+                          </button>
+                        </div>
+
+                        <div className="space-y-2">
+                           <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest px-4">YouTube API Keys</p>
+                           <textarea
+                             value={settings.youtubeApiKeys || ''}
+                             onChange={(e) => onUpdateSettings({ ...settings, youtubeApiKeys: e.target.value })}
+                             placeholder="AIzaSy... , AIzaSy..."
+                             className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white text-xs font-mono focus:border-red-500 outline-none min-h-[100px] resize-none"
+                           />
+                           <button
+                             onClick={() => {
+                               if (settings.youtubeApiKeys) {
+                                 setRuntimeApiKeys(settings.youtubeApiKeys)
+                               }
+                             }}
+                             className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-black text-xs uppercase tracking-widest border border-slate-700"
+                           >
+                             Apply & Refresh App
+                           </button>
+                        </div>
+
+                        <div className="flex items-center justify-between p-5 bg-slate-900 rounded-3xl border border-slate-800 shadow-lg">
+                          <div className="flex items-center gap-4">
+                            <div className="p-3 bg-slate-800 rounded-2xl text-slate-500">
+                               <Key className="w-5 h-5" />
+                            </div>
+                            <div>
+                               <p className="text-white font-black text-sm">Update Vault PIN</p>
+                               <p className="text-slate-500 text-[10px] font-bold">Change 4-digit parent code</p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const newPin = prompt('Enter new 4-digit PIN (numbers only):', settings.adminPin)
+                              if (newPin && /^\d{4}$/.test(newPin)) onUpdateSettings({ ...settings, adminPin: newPin })
+                              else if (newPin) alert('Invalid PIN! Please use 4 digits.')
+                            }}
+                            className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded-xl text-xs font-black transition-all"
+                          >
+                            Change
+                          </button>
+                        </div>
                       </div>
                     </div>
-
-                    <div className="bg-slate-800/40 rounded-[2.5rem] p-8 border border-slate-700/50 space-y-6">
-                      <div className="w-20 h-20 bg-blue-500/20 rounded-3xl flex items-center justify-center mx-auto mb-6">
-                        <Shield className="w-10 h-10 text-blue-500" />
-                      </div>
-                      <div className="text-center">
-                        <h3 className="text-xl font-black text-white">Admin PIN Code</h3>
-                        <p className="text-slate-400 text-sm mt-1">Required to access this vault and manage settings.</p>
-                      </div>
-
-                      <div className="flex justify-center gap-3 py-4">
-                        {[1, 2, 3, 4].map(idx => (
-                          <div key={idx} className="w-14 h-14 bg-slate-900 border-2 border-slate-800 rounded-2xl flex items-center justify-center text-xl font-black text-white">
-                            {settings.adminPin[idx-1] || '•'}
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="grid grid-cols-1 gap-3">
-                        <input
-                          type="password"
-                          inputMode="numeric"
-                          maxLength={4}
-                          value={settings.adminPin}
-                          onChange={(e) => {
-                            const val = e.target.value.replace(/\D/g, '')
-                            if (val.length <= 4) onUpdateSettings({ ...settings, adminPin: val })
-                          }}
-                          placeholder="Type new 4-digit PIN..."
-                          className="w-full bg-slate-900 border-2 border-slate-800 rounded-2xl px-6 py-4 text-white text-center font-black focus:border-blue-500 outline-none"
-                        />
-                      </div>
-                   </div>
                 </div>
               )}
             </div>
