@@ -54,7 +54,7 @@ export function useAppStore() {
       // 1. Find all active lives across all channels (Deep Lookup)
       const targetIds = channelList.map(c => c.channelId)
       const { videos: discoveredLives } = await fetchVideosFromChannels(
-        targetIds, '', 'any', undefined, true, 30 // maxResults: 30
+        targetIds, '', undefined, true, 30 // maxResults: 30
       )
       
       if (discoveredLives.length > 0) {
@@ -63,7 +63,7 @@ export function useAppStore() {
       }
 
       // 2. Initial fetch of videos for all channels if state is empty
-      const { videos: initialVids } = await fetchVideosFromChannels(targetIds, '', 'any', undefined, false, 30)
+      const { videos: initialVids } = await fetchVideosFromChannels(targetIds, '', undefined, false, 30)
       setVideos(initialVids)
     } catch (err) {
       console.warn("Harvest incomplete:", err)
@@ -217,7 +217,7 @@ export function useAppStore() {
         if (!targetIds.length) { setVideos([]); setIsLoading(false); return }
 
         const { videos: vids, nextPageTokens: updatedTokens } = await fetchVideosFromChannels(
-          targetIds, q, 'any', append ? nextTokens : undefined
+          targetIds, q, append ? nextTokens : undefined
         )
         
         finalVids = vids
