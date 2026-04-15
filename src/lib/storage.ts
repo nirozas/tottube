@@ -247,6 +247,16 @@ function rotateKey(): boolean {
   return true
 }
 
+export function setRuntimeApiKeys(keys: string) {
+  localStorage.setItem('tottube_runtime_api_keys', keys)
+  window.location.reload()
+}
+
+export function resetRotationCount() {
+  totalRotations = 0
+  console.log("♻️ API Quota Guard Reset.")
+}
+
 let isRotating = false;
 async function smartFetch(url: string, retryOnQuota = true): Promise<any> {
   const activeKey = getActiveKey()
@@ -316,7 +326,6 @@ export async function fetchPlaylistInfo(playlistId: string): Promise<Playlist | 
 export async function fetchVideosFromChannels(
   channelIds: string[], 
   searchQuery?: string, 
-  videoDuration?: 'short' | 'medium' | 'long' | 'any',
   pageTokens?: Record<string, string>,
   forceLiveOnly?: boolean,
   maxResults: number = 50

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Lock, RefreshCw, Menu, Search, LogOut } from 'lucide-react'
+import { Lock, RefreshCw, Menu, Search, LogOut, X } from 'lucide-react'
 import { Kid } from '../types'
 
 interface HeaderProps {

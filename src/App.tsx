@@ -151,7 +151,6 @@ function App() {
                         onLoadMore={() => refreshVideos({ append: true })}
                         searchQuery={searchQuery}
                         activeChannelFilter={activeChannelFilter}
-                        activePlaylistId={activePlaylistId}
                       />
                     )}
                 </div>

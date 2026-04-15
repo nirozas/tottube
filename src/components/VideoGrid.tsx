@@ -17,7 +17,6 @@ interface VideoGridProps {
   onCategoryChange: (cat: string) => void
   onLoadMore: () => void
   activeChannelFilter?: string | null
-  activePlaylistId?: string | null
 }
 
 export function VideoGrid({ 
@@ -32,7 +31,6 @@ export function VideoGrid({
   onCategoryChange,
   onLoadMore,
   activeChannelFilter,
-  activePlaylistId,
   searchQuery
 }: VideoGridProps) {
   
