@@ -165,23 +165,27 @@ export function useAppStore() {
     playlistId?: string | null,
     query?: string, 
     category?: string, 
-    append?: boolean
+    append?: boolean,
+    force?: boolean
   }) => {
     const list = opts?.channelList ?? channels
     const q = opts?.query ?? searchQuery
     const cat = opts?.category ?? activeCategory
     const plId = opts?.hasOwnProperty('playlistId') ? opts.playlistId : activePlaylistId
     const append = opts?.append ?? false
+    const force = opts?.force ?? false
     
-    // --- 🌍 LOCAL FILTERING (Songs, Shorts, Longs) ---
-    // Instead of hitting API, we sort the videos already in memory
-    if (cat !== 'all' && cat !== 'live' && !append && !q && !plId) {
-       console.log(`🎯 Using Local Smart Filter for: ${cat}`)
+    // --- 🌍 LOCAL FIRST (Save API Credits) ---
+    // Only hit the API if:
+    // 1. Explicitly forced (Manual Refresh)
+    // 2. Appending (Load More)
+    // 3. We have no videos at all (Initial boot if harvest failed)
+    if (!force && !append && videos.length > 0) {
+       console.log("⚡ Skipping API call: Using in-memory content for filtering/search.")
        return
     }
 
     if (plId === 'movies') {
-       // Movies are local state purely for now
        setIsLoading(false)
        return
     }
@@ -193,21 +197,10 @@ export function useAppStore() {
 
       // --- 📡 LIVE VAULT FETCH ---
       if (cat === 'live') {
-        console.log("🏦 Loading Live Streams from Supabase Vault...")
         const savedLives = await getSavedLiveStreams()
-        
-        if (activeChannelFilter) {
-          console.log(`📡 Performing Targeted Live Deep Look for channel: ${activeChannelFilter}`)
-          const res = await fetchVideosFromChannels([activeChannelFilter], '', 'any', undefined, true)
-          if (res.videos.length > 0) {
-             await saveLiveStreams(res.videos)
-             finalVids = res.videos
-          } else {
-             finalVids = savedLives.filter(v => v.channelId === activeChannelFilter)
-          }
-        } else {
-          finalVids = savedLives
-        }
+        finalVids = activeChannelFilter 
+           ? savedLives.filter(v => v.channelId === activeChannelFilter)
+           : savedLives
       } 
       else if (plId) {
         if (plId === '__grid__' || plId === 'movies') {
@@ -221,25 +214,13 @@ export function useAppStore() {
       else {
         // Standard Mix/Search
         const targetIds = activeChannelFilter ? [activeChannelFilter] : list.map(c => c.channelId)
-        if (!targetIds.length) { setVideos([]); return }
+        if (!targetIds.length) { setVideos([]); setIsLoading(false); return }
 
         const { videos: vids, nextPageTokens: updatedTokens } = await fetchVideosFromChannels(
           targetIds, q, 'any', append ? nextTokens : undefined
         )
         
-        let playlistResults: YouTubeVideo[] = []
-        if (!activeChannelFilter && q.trim()) {
-           const allMagicResults = await Promise.all(
-              playlists.map(p => fetchPlaylistVideos(p.id))
-           )
-           const queryFold = q.toLowerCase()
-           playlistResults = allMagicResults.flatMap(r => r.videos).filter(v => 
-              v.title.toLowerCase().includes(queryFold) || 
-              v.channelTitle?.toLowerCase().includes(queryFold)
-           )
-        }
-
-        finalVids = [...playlistResults, ...vids]
+        finalVids = vids
         finalTokens = updatedTokens
       }
 
@@ -266,19 +247,20 @@ export function useAppStore() {
 
   const setCategory = useCallback((cat: string) => {
     setActiveCategory(cat)
-    refreshVideos({ category: cat })
-  }, [refreshVideos])
+    // Removed refreshVideos call to save credits
+  }, [])
 
   const toggleChannelFilter = useCallback((channelId: string | null) => {
     setActiveChannelFilter(channelId)
     setActivePlaylistId(null)
-    refreshVideos({ channelList: channels, playlistId: null, category: 'all' })
-  }, [channels, refreshVideos])
+    // Removed refreshVideos call to save credits
+  }, [])
 
   const togglePlaylistFilter = useCallback((playlistId: string | null) => {
     setActivePlaylistId(playlistId)
     setActiveChannelFilter(null)
-    refreshVideos({ playlistId, category: 'all' })
+    // Hits API for playlists as they aren't fully harvested on start
+    refreshVideos({ playlistId, force: true })
   }, [refreshVideos])
 
   // ─── Actions ─────────────────────────────────────────────────

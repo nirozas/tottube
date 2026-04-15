@@ -108,17 +108,30 @@ export function Header({
               e.preventDefault()
               if (onSearch) onSearch(searchInput)
             }}
-            className="w-full relative hidden md:block"
+            className="w-full relative hidden md:block group"
           >
             <input
               type="text"
               placeholder="Search approved channels..."
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full bg-slate-800/50 border border-slate-700/50 text-white text-sm rounded-full pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all placeholder:text-slate-500"
+              className="w-full bg-slate-800/50 border border-slate-700/50 text-white text-sm rounded-full pl-10 pr-10 py-2 focus:outline-none focus:ring-2 focus:ring-red-500/50 transition-all placeholder:text-slate-500 focus:bg-slate-800 focus:scale-[1.02]"
             />
-            <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2 group-focus-within:text-red-500 transition-colors" />
             
+            {searchInput && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchInput('')
+                  if (onSearch) onSearch('')
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
             {/* Realtime visual timer under search */}
             <div className="absolute -bottom-2.5 left-0 right-0 h-1 bg-slate-800 rounded-full overflow-hidden opacity-50">
               <div
@@ -200,16 +213,29 @@ export function Header({
             e.preventDefault()
             if (onSearch) onSearch(searchInput)
           }}
-          className="w-full relative"
+          className="w-full relative group"
         >
           <input
             type="text"
-            placeholder="Search channels..."
+            placeholder="Search approved channels..."
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 text-white text-base rounded-2xl pl-11 pr-4 py-3 focus:outline-none focus:ring-1 focus:ring-red-500 transition-all placeholder:text-slate-500"
+            className="w-full bg-slate-900 border border-slate-700 text-white text-base rounded-2xl pl-11 pr-10 py-3 focus:outline-none focus:ring-1 focus:ring-red-500 transition-all placeholder:text-slate-500"
           />
-          <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 group-focus-within:text-red-500 transition-colors" />
+          
+          {searchInput && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchInput('')
+                if (onSearch) onSearch('')
+              }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </form>
       </div>
 

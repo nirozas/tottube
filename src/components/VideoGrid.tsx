@@ -16,6 +16,8 @@ interface VideoGridProps {
   activeCategory: string
   onCategoryChange: (cat: string) => void
   onLoadMore: () => void
+  activeChannelFilter?: string | null
+  activePlaylistId?: string | null
 }
 
 export function VideoGrid({ 
@@ -28,18 +30,49 @@ export function VideoGrid({
   onSearch, 
   activeCategory, 
   onCategoryChange,
-  onLoadMore
+  onLoadMore,
+  activeChannelFilter,
+  activePlaylistId,
+  searchQuery
 }: VideoGridProps) {
   
   // We no longer return early, we render the UI structure and only skeleton the content area
 
-  // Filter content based on category
+  // Filter content based on category AND search query
   const filteredVideos = videos.filter(v => {
-    if (activeCategory === 'all') return true;
+    // 1. Channel Filter (Local)
+    if (activeChannelFilter && v.channelId !== activeChannelFilter) return false;
+
+    // 2. Search Query Filter (In-memory to save credits)
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      const match = v.title.toLowerCase().includes(q) || 
+                   v.channelTitle?.toLowerCase().includes(q);
+      if (!match) return false;
+    }
+
+    const duration = v.durationSeconds || 0;
+    
+    // 🔥 Shorts < 1:20 (80s)
+    if (activeCategory === 'mini') return duration < 80 && !v.isLive;
+    
+    // 🎭 Stories: 1:20 to 5:00
+    if (activeCategory === 'shorts') return duration >= 80 && duration < 300 && !v.isLive;
+
+    // 🍿 Long Shows: > 5:00
+    if (activeCategory === 'longs') return duration >= 300 && !v.isLive;
+
+    // 🔴 Live
     if (activeCategory === 'live') return v.isLive;
-    if (activeCategory === 'songs') return v.isSong;
-    if (activeCategory === 'shorts') return (v.durationSeconds || 0) < 300 && !v.isLive;
-    if (activeCategory === 'longs') return (v.durationSeconds || 0) >= 300 && !v.isLive;
+
+    // 🎵 Songs
+    if (activeCategory === 'songs') return v.isSong && !v.isLive;
+
+    // 🍭 Mix of All (Exclude Shorts)
+    if (activeCategory === 'all') {
+      return (duration >= 80 || activeCategory === 'all') && !v.isLive;
+    }
+
     return true;
   });
 
@@ -92,6 +125,7 @@ export function VideoGrid({
         {[
           { id: 'live', title: '🔴 Live Now' },
           { id: 'songs', title: '🎵 Kids Songs' },
+          { id: 'mini', title: '⚡ Shorts' },
           { id: 'shorts', title: '🎬 Stories' },
           { id: 'longs', title: '🍿 Long Shows' },
         ].map(cat => (

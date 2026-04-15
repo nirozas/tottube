@@ -46,7 +46,7 @@ export async function saveSettings(settings: AppSettings): Promise<void> {
 export async function getChannels(): Promise<Channel[]> {
   if (!isSupabaseConfigured || !supabase) return []
   try {
-    const { data, error } = await supabase.from('tottube_channels').select('*').order('addedAt', { ascending: true })
+    const { data, error } = await supabase.from('tottube_channels').select('*').order('"addedAt"', { ascending: true })
     if (error) throw error
     return (data as Channel[]) || []
   } catch (err) {
@@ -60,19 +60,19 @@ export async function addChannel(channel: Channel): Promise<void> {
   const { data: { user } } = await supabase.auth.getUser()
   const payload = { ...channel, user_id: user?.id }
   const { error } = await supabase.from('tottube_channels').upsert(payload) 
-  if (error) await supabase.from('tottube_channels').upsert(payload, { onConflict: 'channelId,user_id' })
+  if (error) await supabase.from('tottube_channels').upsert(payload, { onConflict: '"channelId",user_id' })
 }
 
 export async function removeChannel(channelId: string): Promise<void> {
   if (!isSupabaseConfigured || !supabase) return
-  await supabase.from('tottube_channels').delete().eq('channelId', channelId)
+  await supabase.from('tottube_channels').delete().eq('"channelId"', channelId)
 }
 
 // ─── Playlists ────────────────────────────────────────────────
 export async function getPlaylists(): Promise<Playlist[]> {
   if (!isSupabaseConfigured || !supabase) return []
   try {
-    const { data, error } = await supabase.from('tottube_playlists').select('*').order('addedAt', { ascending: true })
+    const { data, error } = await supabase.from('tottube_playlists').select('*').order('"addedAt"', { ascending: true })
     if (error) throw error
     return (data as Playlist[]) || []
   } catch (err) {
@@ -129,7 +129,7 @@ export async function getMovies(): Promise<Movie[]> {
     } catch { return [] }
   }
   try {
-    const { data, error } = await supabase.from('tottube_movies').select('*').order('addedAt', { ascending: false })
+    const { data, error } = await supabase.from('tottube_movies').select('*').order('"addedAt"', { ascending: false })
     if (error) throw error
     return (data as Movie[]) || []
   } catch (err) {
@@ -164,7 +164,7 @@ export async function removeMovie(id: string): Promise<void> {
 // ─── Live Vault (Radar) ──────────────────────────────────────
 export async function getSavedLiveStreams(): Promise<YouTubeVideo[]> {
   if (!isSupabaseConfigured || !supabase) return []
-  const { data } = await supabase.from('tottube_lives').select('*').order('addedAt', { ascending: false })
+  const { data } = await supabase.from('tottube_lives').select('*').order('"addedAt"', { ascending: false })
   return (data as any[])?.map(item => ({
     ...item,
     isLive: true
@@ -229,22 +229,10 @@ const API_KEYS = RAW_KEYS.split(',').map((k: string) => k.trim()).filter((k: str
 
 if (API_KEYS.length === 0) {
   console.warn("⚠️ TotTube: No YouTube API keys found! Video fetching will fail. Add VITE_YOUTUBE_API_KEYS=key1,key2 to .env or Vercel.")
-} else {
-  console.log(`✅ TotTube: Initialized with ${API_KEYS.length} API keys starting with ${API_KEYS[0].slice(0, 6)}...`)
 }
 
 let currentKeyIndex = 0
 let totalRotations = 0
-
-export function setRuntimeApiKeys(keys: string) {
-  localStorage.setItem('tottube_runtime_api_keys', keys)
-  window.location.reload() // Reload to apply new keys
-}
-
-export function resetRotationCount() {
-  totalRotations = 0
-  console.log("♻️ API Quota Guard Reset. Starting fresh rotation cycle!")
-}
 
 function getActiveKey(): string {
   if (API_KEYS.length === 0) return 'YOUR_YOUTUBE_API_KEY_HERE'
@@ -253,72 +241,44 @@ function getActiveKey(): string {
 
 function rotateKey(): boolean {
   if (API_KEYS.length <= 1) return false
-  
-  // Two full circles (Two full cycles through all keys)
-  if (totalRotations >= API_KEYS.length * 2) {
-    console.warn("🛡️ API Quota Guard: Completed 2 full cycles. Terminating rotation until manual refresh.")
-    return false
-  }
-
+  if (totalRotations >= API_KEYS.length * 2) return false
   totalRotations++
   currentKeyIndex++
-  const active = getActiveKey()
-  console.log(`📡 Rotating to API Key ${currentKeyIndex % API_KEYS.length + 1}/${API_KEYS.length} (Cycle ${Math.floor(totalRotations / API_KEYS.length) + 1}. ENDS with: ...${active.slice(-4)})`)
   return true
 }
 
-// ─── Diagnostic API Call Helper ──────────────────────────────────
+let isRotating = false;
 async function smartFetch(url: string, retryOnQuota = true): Promise<any> {
   const activeKey = getActiveKey()
   const res = await fetch(`${url}&key=${activeKey}`)
   
   if (res.status === 403 || res.status === 400) {
     const errorData = await res.json().catch(() => ({}))
-    const msg = errorData.error?.message || 'Forbidden/Bad Request'
     const reason = errorData.error?.errors?.[0]?.reason || ''
     
-    console.error(`🎬 YouTube API ERROR ${res.status} on Key ${currentKeyIndex % API_KEYS.length + 1}: ${msg} (${reason})`)
-    
-    if (retryOnQuota && (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded' || res.status === 403) && rotateKey()) {
-      return smartFetch(url, true)
+    if (retryOnQuota && (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded' || res.status === 403)) {
+       if (!isRotating) {
+         isRotating = true;
+         rotateKey();
+         setTimeout(() => { isRotating = false }, 500);
+       }
+       return smartFetch(url, true)
     }
-    
-    if (res.status === 400 && activeKey === 'YOUR_YOUTUBE_API_KEY_HERE') {
-      throw new Error('MISSING_API_KEY')
-    }
-
-    throw new Error(reason === 'quotaExceeded' ? 'QUOTA_EXCEEDED' : `API_ERROR_${res.status}`)
+    throw new Error(reason || 'API_ERROR')
   }
-  
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return res.json()
 }
 
-// ─── Offline Caching (Phase 3) ───────────────────────────────────
-const CACHE_KEY = 'tottube_video_cache'
-const CACHE_TTL = 1000 * 60 * 60 * 2 // 2 hours
-
-export function saveCachedVideos(videos: YouTubeVideo[]) {
-  try {
-    const data = {
-      timestamp: Date.now(),
-      videos: videos.slice(0, 100) // Only cache top 100 for storage limits
-    }
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data))
-  } catch (e) { console.warn('Cache save failed:', e) }
+// ─── YouTube API Utility ────────────────────────────────────────
+function parseDuration(pt: string): number {
+  const match = pt.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
+  if (!match) return 0
+  const h = parseInt(match[1] || '0', 10)
+  const m = parseInt(match[2] || '0', 10)
+  const s = parseInt(match[3] || '0', 10)
+  return h * 3600 + m * 60 + s
 }
 
-export function loadCachedVideos(): YouTubeVideo[] {
-  try {
-    const raw = localStorage.getItem(CACHE_KEY)
-    if (!raw) return []
-    const data = JSON.parse(raw)
-    if (Date.now() - data.timestamp > CACHE_TTL) return []
-    return data.videos || []
-  } catch { return [] }
-}
-
-// ─── YouTube API ────────────────────────────────────────────────
 export async function fetchChannelInfo(channelIdOrHandle: string): Promise<any> {
   const isChannelId = channelIdOrHandle.startsWith('UC')
   const baseUrl = `https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics`
@@ -350,19 +310,7 @@ export async function fetchPlaylistInfo(playlistId: string): Promise<Playlist | 
       thumbnailUrl: item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
       addedAt: new Date().toISOString()
     }
-  } catch (err: any) {
-    if (err.message === 'QUOTA_EXCEEDED') throw err
-    return null
-  }
-}
-
-function parseDuration(pt: string): number {
-  const match = pt.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/)
-  if (!match) return 0
-  const h = parseInt(match[1] || '0', 10)
-  const m = parseInt(match[2] || '0', 10)
-  const s = parseInt(match[3] || '0', 10)
-  return h * 3600 + m * 60 + s
+  } catch (err) { return null }
 }
 
 export async function fetchVideosFromChannels(
@@ -375,113 +323,66 @@ export async function fetchVideosFromChannels(
 ): Promise<{ videos: YouTubeVideo[], nextPageTokens: Record<string, string> }> {
   if (!channelIds.length) return { videos: [], nextPageTokens: {} }
 
-  const allVideos: YouTubeVideo[] = []
   const newTokens: Record<string, string> = {}
-
-  for (const channelId of channelIds) {
+  
+  const channelPromises = channelIds.map(async (channelId) => {
     try {
-      let data: any = {}
-      let videoIdsToFetch: string[] = []
+      let videoIds: string[] = []
+      const isMix = !searchQuery || searchQuery === '-shorts -#shorts'
       
-      const isMixView = !forceLiveOnly && (!searchQuery || searchQuery === '-shorts -#shorts') && (!videoDuration || videoDuration === 'any')
-
-      if (isMixView) {
-        // Optimized Uploads Playlist View (1 unit cost)
+      if (isMix && !forceLiveOnly) {
         const uploadsPlaylistId = channelId.replace('UC', 'UU')
-        const baseUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}`
-        const pg = pageTokens?.[channelId] ? `&pageToken=${pageTokens[channelId]}` : ''
-        
-        data = await smartFetch(baseUrl + pg)
+        const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokens?.[channelId] ? `&pageToken=${pageTokens[channelId]}` : ''}`
+        const data = await smartFetch(url)
         if (data.nextPageToken) newTokens[channelId] = data.nextPageToken
-        if (!data.items?.length) continue
-        
-        videoIdsToFetch = data.items.map((item: any) => item.contentDetails.videoId)
+        videoIds = (data.items || []).map((item: any) => item.contentDetails.videoId)
       } else {
-        // Deep search or Force Live Only
-        const baseUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&channelId=${channelId}&type=video&maxResults=${maxResults}${forceLiveOnly ? '&eventType=live' : ''}`
-        
-        // IMPORTANT: For live discovery, we remove the '-shorts' query as it can sometimes 
-        // conflict with the live index on larger channels.
-        let query = forceLiveOnly ? (searchQuery || '') : (searchQuery ? `${searchQuery} -shorts -#shorts` : '-shorts -#shorts')
-        let url = `${baseUrl}&q=${encodeURIComponent(query.trim())}`
-        if (pageTokens?.[channelId]) url += `&pageToken=${pageTokens[channelId]}`
-        if (videoDuration && videoDuration !== 'any') url += `&videoDuration=${videoDuration}`
-        
-        data = await smartFetch(url)
-        
-        // 🚨 SENIOR FIX: If eventType=live returned nothing, fallback to checking Uploads playlist
-        // This is much more reliable for channels like @disneyjr
-        if (forceLiveOnly && (!data.items || data.items.length === 0)) {
-          console.log(`🔍 Search API found no live streams for ${channelId}. Falling back to Uploads playlist check...`)
-          const uploadsId = channelId.replace('UC', 'UU')
-          const uploadsUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${uploadsId}&maxResults=20`
-          const uploadsData = await smartFetch(uploadsUrl)
-          
-          if (uploadsData.items?.length > 0) {
-            // We only keep the items that are actually live
-            videoIdsToFetch = uploadsData.items.map((item: any) => item.contentDetails.videoId)
-          }
-        } else {
-          if (data.nextPageToken) newTokens[channelId] = data.nextPageToken
-          if (data.items?.length) {
-            videoIdsToFetch = data.items.filter((item: any) => item.id?.videoId).map((item: any) => item.id.videoId)
-          }
-        }
+        const query = searchQuery ? `${searchQuery} -shorts -#shorts` : '-shorts -#shorts'
+        const url = `https://www.googleapis.com/youtube/v3/search?part=id&channelId=${channelId}&type=video&maxResults=${maxResults}&q=${encodeURIComponent(query)}${forceLiveOnly ? '&eventType=live' : ''}${pageTokens?.[channelId] ? `&pageToken=${pageTokens[channelId]}` : ''}`
+        const data = await smartFetch(url)
+        if (data.nextPageToken) newTokens[channelId] = data.nextPageToken
+        videoIds = (data.items || []).map((item: any) => item.id.videoId)
       }
 
-      if (videoIdsToFetch.length > 0) {
-        // Fetch full video details (durations, live status) for ALL views
-        // This takes 1 unit and enables the duration badges + category filtering
-        const detailsData = await smartFetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIdsToFetch.join(',')}`)
-        
-        const mappedVideos: YouTubeVideo[] = (detailsData.items || []).map((item: any) => ({
-           id: item.id,
-           title: item.snippet.title,
-           thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
-           channelId,
-           publishedAt: item.snippet.publishedAt,
-           durationSeconds: parseDuration(item.contentDetails?.duration || 'PT0S'),
-           isLive: item.snippet.liveBroadcastContent === 'live',
-           isSong: item.snippet.title.toLowerCase().includes('song') || item.snippet.title.toLowerCase().includes('music'),
+      if (videoIds.length > 0) {
+        const details = await smartFetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoIds.join(',')}`)
+        return (details.items || []).map((item: any) => ({
+          id: item.id,
+          title: item.snippet.title,
+          thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url,
+          channelId,
+          channelTitle: item.snippet.channelTitle,
+          publishedAt: item.snippet.publishedAt,
+          durationSeconds: parseDuration(item.contentDetails?.duration || 'PT0S'),
+          isLive: item.snippet.liveBroadcastContent === 'live',
+          isSong: item.snippet.title.toLowerCase().includes('song'),
         }))
-        
-        // If we were force searching for live content, filter only what is active
-        const finalItems = forceLiveOnly ? mappedVideos.filter(v => v.isLive) : mappedVideos
-        allVideos.push(...finalItems)
       }
-    } catch (error: any) {
-      console.error(`Error fetching channel ${channelId}:`, error)
-      if (error.message === 'QUOTA_EXCEEDED') throw error 
-    }
-  }
+      return []
+    } catch (e) { return [] }
+  })
 
-  // Shuffle the result
-  const shuffled = [...allVideos]
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
-  }
+  const results = await Promise.all(channelPromises)
+  const allVideos = results.flat()
+  const finalVideos = forceLiveOnly ? allVideos.filter(v => v.isLive) : allVideos
+
+  // Shuffle
+  const shuffled = [...finalVideos].sort(() => Math.random() - 0.5)
   return { videos: shuffled, nextPageTokens: newTokens }
 }
 
-export async function fetchPlaylistVideos(
-  playlistId: string,
-  pageToken?: string
-): Promise<{ videos: YouTubeVideo[], nextPageToken?: string }> {
-  const baseUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=snippet,contentDetails&playlistId=${playlistId}&maxResults=50`
-  const pg = pageToken ? `&pageToken=${pageToken}` : ''
-  
+export async function fetchPlaylistVideos(playlistId: string, pageToken?: string) {
   try {
-    const data = await smartFetch(baseUrl + pg)
-    if (!data.items?.length) return { videos: [] }
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${playlistId}&maxResults=50${pageToken ? `&pageToken=${pageToken}` : ''}`
+    const data = await smartFetch(url)
+    const videoIds = (data.items || []).map((item: any) => item.contentDetails.videoId)
+    if (!videoIds.length) return { videos: [] }
     
-    const videoIds = data.items.map((item: any) => item.contentDetails.videoId)
-    const detailsData = await smartFetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,snippet&id=${videoIds.join(',')}`)
-    
-    const mappedVideos: YouTubeVideo[] = (detailsData.items || []).map((item: any) => ({
+    const details = await smartFetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id=${videoIds.join(',')}`)
+    const videos = (details.items || []).map((item: any) => ({
       id: item.id,
       title: item.snippet.title,
-      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url || item.snippet.thumbnails?.default?.url,
+      thumbnailUrl: item.snippet.thumbnails?.high?.url || item.snippet.thumbnails?.medium?.url,
       channelId: item.snippet.channelId,
       channelTitle: item.snippet.channelTitle,
       publishedAt: item.snippet.publishedAt,
@@ -489,13 +390,20 @@ export async function fetchPlaylistVideos(
       isLive: item.snippet.liveBroadcastContent === 'live',
       isSong: item.snippet.title.toLowerCase().includes('song'),
     }))
-    
-    return {
-      videos: mappedVideos,
-      nextPageToken: data.nextPageToken
-    }
-  } catch (err) {
-    console.error('Magic Playlist fetch failed:', err)
-    return { videos: [] }
-  }
+    return { videos, nextPageToken: data.nextPageToken }
+  } catch (e) { return { videos: [] } }
+}
+
+export function saveCachedVideos(videos: YouTubeVideo[]) {
+  localStorage.setItem('tottube_video_cache', JSON.stringify({ timestamp: Date.now(), videos: videos.slice(0, 100) }))
+}
+
+export function loadCachedVideos(): YouTubeVideo[] {
+  try {
+    const raw = localStorage.getItem('tottube_video_cache')
+    if (!raw) return []
+    const data = JSON.parse(raw)
+    if (Date.now() - data.timestamp > 7200000) return []
+    return data.videos || []
+  } catch { return [] }
 }

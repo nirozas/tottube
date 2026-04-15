@@ -65,10 +65,9 @@ function App() {
 
   const handleSearch = (q: string) => {
     setSearchQuery(q)
-    // Reset filters to ensure portal-wide discovery for the kid
-    toggleChannelFilter(null)
-    togglePlaylistFilter(null)
-    refreshVideos({ query: q, category: 'all' })
+    // We now filter locally in VideoGrid to save API credits
+    // toggleChannelFilter(null)
+    // togglePlaylistFilter(null)
   }
 
   const playVideo = (video: any) => {
@@ -146,11 +145,13 @@ function App() {
                         onPlay={playVideo}
                         onOpenAdmin={() => setIsAdminOpen(true)}
                         shortcuts={settings.shortcuts}
-                        searchQuery={searchQuery}
                         onSearch={handleSearch}
                         activeCategory={activeCategory}
                         onCategoryChange={setCategory}
                         onLoadMore={() => refreshVideos({ append: true })}
+                        searchQuery={searchQuery}
+                        activeChannelFilter={activeChannelFilter}
+                        activePlaylistId={activePlaylistId}
                       />
                     )}
                 </div>
@@ -161,6 +162,8 @@ function App() {
                   video={currentVideo}
                   isVisible={isPlayerVisible}
                   onClose={closeVideo}
+                  onVideoSelect={playVideo}
+                  suggestedVideos={videos.filter(v => v.id !== (currentVideo as any).id)}
                 />
               )}
             </>
